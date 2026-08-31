@@ -24,7 +24,6 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'tutorial = rb2301_tutorial.tutorial:main',
             'tut = rb2301_tutorial.tutorial:main',
             'fake = rb2301_tutorial.fake:main',
         ],
