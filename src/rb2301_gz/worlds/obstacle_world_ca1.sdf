@@ -1,0 +1,164 @@
+<sdf version="1.10">
+  <world name="empty">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+    <plugin name="gz::sim::systems::Physics" filename="gz-sim-physics-system" />
+    <plugin name="gz::sim::systems::UserCommands" filename="gz-sim-user-commands-system" />
+    <plugin name="gz::sim::systems::SceneBroadcaster" filename="gz-sim-scene-broadcaster-system" />
+    <plugin name="gz::sim::systems::Contact" filename="gz-sim-contact-system" />
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <gravity>0 0 -9.8000000000000007</gravity>
+    <magnetic_field>5.5644999999999998e-06 2.2875799999999999e-05 -4.2388400000000002e-05</magnetic_field>
+    <atmosphere type="adiabatic" />
+    <scene>
+      <ambient>0.400000006 0.400000006 0.400000006 1</ambient>
+      <background>0.699999988 0.699999988 0.699999988 1</background>
+      <shadows>true</shadows>
+    </scene>
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode />
+            </friction>
+            <bounce />
+            <contact />
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.800000012 0.800000012 0.800000012 1</ambient>
+            <diffuse>0.800000012 0.800000012 0.800000012 1</diffuse>
+            <specular>0.800000012 0.800000012 0.800000012 1</specular>
+          </material>
+        </visual>
+        <pose>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+        <enable_wind>false</enable_wind>
+      </link>
+      <pose>0 0 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+    <model name="ground_plane_1">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode />
+            </friction>
+            <bounce />
+            <contact />
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.800000012 0.800000012 0.800000012 1</ambient>
+            <diffuse>0.800000012 0.800000012 0.800000012 1</diffuse>
+            <specular>0.800000012 0.800000012 0.800000012 1</specular>
+          </material>
+        </visual>
+      </link>
+      <pose>-2.4852922822011769 -1.7563776762673191 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+    <model name="ground_plane_2">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode />
+            </friction>
+            <bounce />
+            <contact />
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.800000012 0.800000012 0.800000012 1</ambient>
+            <diffuse>0.800000012 0.800000012 0.800000012 1</diffuse>
+            <specular>0.800000012 0.800000012 0.800000012 1</specular>
+          </material>
+        </visual>
+      </link>
+      <pose>-6.0943901708632628 -2.7240120998093884 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <light name="sun" type="directional">
+      <pose>0 0 10 0 0 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <intensity>1</intensity>
+      <direction>-0.5 0.10000000000000001 -0.90000000000000002</direction>
+      <diffuse>0.800000012 0.800000012 0.800000012 1</diffuse>
+      <specular>0.200000003 0.200000003 0.200000003 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <linear>0.01</linear>
+        <constant>0.90000000000000002</constant>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <spot>
+        <inner_angle>0</inner_angle>
+        <outer_angle>0</outer_angle>
+        <falloff>0</falloff>
+      </spot>
+    </light>
+
+<include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke1</name><pose>0.8 -2.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke2</name><pose>0.8 0.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke3</name><pose>0.8 0.4 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke4</name><pose>0.8 1.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke5</name><pose>0.8 1.8 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke6</name><pose>1.6 0.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke7</name><pose>2.0 -1.8 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke8</name><pose>2.0 -0.6 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke9</name><pose>2.0 0.6 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke10</name><pose>2.4 -1.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke11</name><pose>2.4 -0.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke12</name><pose>2.4 0.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke13</name><pose>2.4 1.6 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke14</name><pose>3.2 -2.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke15</name><pose>3.2 -1.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke16</name><pose>3.2 1.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke17</name><pose>4.0 0.8 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke18</name><pose>4.0 1.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke19</name><pose>4.4 -2.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke20</name><pose>4.4 -1.6 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke21</name><pose>4.4 -0.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke22</name><pose>4.8 -1.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke23</name><pose>4.8 0.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke24</name><pose>4.8 0.8 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke25</name><pose>5.2 -0.6 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke26</name><pose>5.2 1.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke27</name><pose>5.2 1.6 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke28</name><pose>5.6 -1.4 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke29</name><pose>5.6 -1.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke30</name><pose>5.6 0.4 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke31</name><pose>5.6 0.8 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke32</name><pose>6.0 -2.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke33</name><pose>6.0 0.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke34</name><pose>6.4 -1.4 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke35</name><pose>6.4 -1.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke36</name><pose>6.4 0.4 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke37</name><pose>6.4 0.8 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke38</name><pose>6.4 1.2 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke39</name><pose>6.4 1.8 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke40</name><pose>6.8 -2.0 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke41</name><pose>6.8 -0.6 0 0 0 0</pose></include><include><uri>file:////home/lujianyi/rb2301/src/rb2301_gz/meshes/coke/6</uri><name>coke42</name><pose>6.8 0.0 0 0 0 0</pose></include></world>
+</sdf>

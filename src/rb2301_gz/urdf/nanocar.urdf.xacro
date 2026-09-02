@@ -1,0 +1,282 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<robot name="nanocar" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <xacro:arg name="robot_name" default=""/>
+  <xacro:include filename="$(find rb2301_gz)/urdf/rb2301_gz.gazebo.xacro" /> 
+
+  <link name="$(arg robot_name)/base_footprint"/>
+  <joint name="base_joint" type="fixed">
+    <parent link="$(arg robot_name)/base_footprint"/>
+    <child link="$(arg robot_name)/base_link"/>
+    <origin xyz="0.0 0.0 0.0325" rpy="0 0 0"/>
+  </joint>
+
+  <link
+    name="$(arg robot_name)/base_link">
+    <inertial>
+      <origin
+        xyz="0.041429 0.00023721 0.0417"
+        rpy="0 0 0" />
+      <mass
+        value="0.41342" />
+      <inertia
+        ixx="0.00064742"
+        ixy="2.7616E-06"
+        ixz="-5.8305E-06"
+        iyy="0.0002294"
+        iyz="-3.2844E-07"
+        izz="0.00081432" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://rb2301_gz/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.14902 0.14902 0.14902 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://rb2301_gz/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- four wheel -->
+  <xacro:macro name="wheel" params="prefix *joint_origin *joint_axis">
+    <link
+      name="$(arg robot_name)/${prefix}_wheel_link">
+      <inertial>
+      <origin
+        xyz="5.2978E-08 -1.9013E-07 -0.0015791"
+        rpy="0 0 0" />
+      <mass
+        value="0.062971" />
+      <inertia
+        ixx="1.2204E-05"
+        ixy="-1.4876E-10"
+        ixz="9.6671E-11"
+        iyy="1.2204E-05"
+        iyz="-7.8703E-11"
+        izz="1.6521E-05" />
+      </inertial>
+      <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+        filename="package://rb2301_gz/meshes/${prefix}_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+        rgba="1 1 1 1" />
+      </material>
+      </visual>
+      <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+        filename="package://rb2301_gz/meshes/${prefix}_wheel_link.STL" />
+      </geometry>
+      </collision>
+    </link>
+    <joint
+      name="${prefix}_wheel_joint"
+      type="fixed">
+      <xacro:insert_block name="joint_origin"/>
+      <parent
+      link="$(arg robot_name)/base_link" />
+      <child
+      link="$(arg robot_name)/${prefix}_wheel_link" />
+      <xacro:insert_block name="joint_axis"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:wheel prefix="front_left">
+    <origin
+      xyz="0.0746 0.089266 0"
+      rpy="-1.5708 0 0" />
+    <axis
+      xyz="0 0 1" />
+  </xacro:wheel>
+  <xacro:wheel prefix="front_right">
+    <origin
+      xyz="0.0746 -0.089266 0"
+      rpy="-1.5708 0 0" />
+    <axis
+      xyz="0 0 1" />
+  </xacro:wheel>
+  <xacro:wheel prefix="back_left">
+    <origin
+      xyz="-0.0746 0.089266 0"
+      rpy="-1.5708 0 0" />
+    <axis
+      xyz="0 0 1" />
+  </xacro:wheel>
+  <xacro:wheel prefix="back_right">
+    <origin
+      xyz="-0.0746 -0.089266 0"
+      rpy="-1.5708 0 0" />
+    <axis
+      xyz="0 0 1" />
+  </xacro:wheel>
+
+  <!-- depth camera -->
+  <link name="$(arg robot_name)/camera_link"/>
+  <joint
+    name="ir_camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.10485 0.0375 0.064184"
+      rpy="0 0 0" />
+    <parent
+      link="$(arg robot_name)/base_link" />
+    <child
+      link="$(arg robot_name)/camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+
+  <!-- rgb camera -->
+  <link name="$(arg robot_name)/base_camera_link"/>
+  <joint
+    name="base_camera_joint"
+    type="fixed">
+    <origin
+      xyz="0.099 -0.0001 0.1077"
+      rpy="0 0 0" />
+    <parent
+      link="$(arg robot_name)/base_link" />
+    <child
+      link="$(arg robot_name)/base_camera_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+
+  <!-- laser sensor -->
+  <link name="$(arg robot_name)/base_laser_link"/>
+  <joint
+    name="laser_joint"
+    type="fixed">
+    <origin
+      xyz="0.053735 -0.0017816 0.12907"
+      rpy="0 0 3.1416" />
+    <parent
+      link="$(arg robot_name)/base_link" />
+    <child
+      link="$(arg robot_name)/base_laser_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+
+  <!-- inertia sensor -->
+  <link name="$(arg robot_name)/imu"/>
+  <joint
+    name="imu_joint"
+    type="fixed">
+    <origin
+      xyz="0.0040573 -3.5865E-05 0.0195"
+      rpy="0 0 0" />
+    <parent
+      link="$(arg robot_name)/base_link" />
+    <child
+      link="$(arg robot_name)/imu" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+
+<!-- ****************************** LIDAR *****************************    -->
+  <link name="base_laser_link">    
+    <inertial>
+      <pose>0.215 0 0.13 0 0 0</pose>
+      <inertia>
+        <ixx>0.001</ixx>
+        <ixy>0.000</ixy>
+        <ixz>0.000</ixz>
+        <iyy>0.001</iyy>
+        <iyz>0.000</iyz>
+        <izz>0.001</izz>
+      </inertia>
+      <mass>0.114</mass>
+    </inertial>
+
+    <collision name="lidar_collision">
+      <pose>0.215 0 0.13 0 0 0</pose>
+      <geometry>
+        <cylinder>
+          <radius>0.0508</radius>
+          <length>0.18</length>
+        </cylinder>
+      </geometry>
+    </collision>
+
+    <visual name="lidar_visual">
+      <pose>0.215 0 0.13 0 0 0</pose>
+      <geometry>
+        <cylinder>
+          <radius>0.0508</radius>
+          <length>0.18</length>
+        </cylinder>
+      </geometry>
+      <material>
+        <ambient>0.0 0.0 0.0 1.0</ambient>
+        <diffuse>0.0 0.0 0.0 1.0</diffuse>
+        <specular>0.0 0.0 0.0 1.0</specular>
+        <emissive>0.0 0.0 0.0 1.0</emissive>
+      </material>
+    </visual>
+
+    <!-- <sensor name="rplidar_sensor" type="ray">
+      <pose>0.215 0 0.215 0 0 0</pose>
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <update_rate>5</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>720</samples>
+            <resolution>0.5</resolution>
+            <min_angle>0.0</min_angle>
+            <max_angle>6.28319</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.120</min>
+          <max>12.0</max>
+          <resolution>0.015</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </ray>
+      <plugin name="gazebo_ros_rplidar_controller" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <remapping>~/out:=scan</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>lidar_link</frame_name>
+        <topic>scan</topic>
+        <frame>base_laser_link</frame>
+      </plugin>
+    </sensor>
+  </link> -->
+
+
+</robot>
