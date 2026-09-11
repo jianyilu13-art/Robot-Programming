@@ -73,7 +73,7 @@ class ObstacleAvoidanceNode(Node):
             if distance >= safe_distance:
                 continue
 
-            distance = max(distance, 0.05)
+            distance = max(distance, 0.04)
 
             strength = avoidance_gain * (
                 1.0 / distance
@@ -129,7 +129,7 @@ class ObstacleAvoidanceNode(Node):
         x = forward_velocity + avoid_x
         y = avoid_y
 
-        x = np.clip(x, -0.2, max_translate_velocity)
+        x = np.clip(x, 0.0, max_translate_velocity)
         y = np.clip(y, -max_translate_velocity, max_translate_velocity)
 
         self.move_2D(
