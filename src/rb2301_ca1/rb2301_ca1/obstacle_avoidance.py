@@ -96,41 +96,79 @@ class ObstacleAvoidanceNode(Node):
 
         forward_velocity = 0.3
 
-        # Preferred escape direction
-        preferred_direction = -1.0   # +1 = left, -1 = right
+        forward_result = forward_velocity + avoid_x
 
-        # If there is a strong obstacle directly ahead
-        # If there is no clear left/right preference,
+        # Hysteresis prevents repeatedly entering/leaving escape mode
+        enter_escape_threshold = 0.05
+        exit_escape_threshold = 0.15
 
-        """
-        if avoid_x < -0.1 and abs(avoid_y) < 0.05:
+        # =====================================================
+        # ESCAPE MODE
+        # =====================================================
 
-            
-            # force a small sideways escape.
-            avoid_y = 0.2 * preferred_direction
+        if self.in_escape_mode:
 
-        """
-        ### test_1
+            # Only leave after there is clearly enough
+            # forward movement available again
+            if forward_result > exit_escape_threshold:
 
-        if avoid_x < -0.1 and abs(avoid_y) < 0.05:
+                self.in_escape_mode = False
 
-            if not self.in_escape_mode:
-                self.preferred_direction *= -1.0
-                self.in_escape_mode = True
+                x = forward_result
+                y = avoid_y
 
-            avoid_y = 0.2 * self.preferred_direction
-            avoid_x = 0.4 * avoid_x 
+            else:
+
+                # Keep the SAME escape direction
+                x = 0.0
+                y = 0.25 * self.preferred_direction
+
+        # =====================================================
+        # NORMAL MODE
+        # =====================================================
 
         else:
-            self.in_escape_mode = False
 
-        ###
-        
-        x = forward_velocity + avoid_x
-        y = avoid_y
+            # Potential-field local minimum / trap
+            if forward_result < enter_escape_threshold:
 
-        x = np.clip(x, 0.0, max_translate_velocity)
-        y = np.clip(y, -max_translate_velocity, max_translate_velocity)
+                self.in_escape_mode = True
+
+                # Choose escape direction once
+                if avoid_y > 0.03:
+                    self.preferred_direction = 1.0
+
+                elif avoid_y < -0.03:
+                    self.preferred_direction = -1.0
+
+                else:
+                    # No obvious direction
+                    self.preferred_direction *= -1.0
+
+                x = 0.0
+                y = 0.25 * self.preferred_direction
+
+            else:
+
+                # Normal potential-field control
+                x = forward_result
+                y = avoid_y
+
+        # =====================================================
+        # VELOCITY LIMITS
+        # =====================================================
+
+        x = np.clip(
+            x,
+            0.0,
+            max_translate_velocity
+        )
+
+        y = np.clip(
+            y,
+            -max_translate_velocity,
+            max_translate_velocity
+        )
 
         self.move_2D(
             x=x,
