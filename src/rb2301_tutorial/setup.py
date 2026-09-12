@@ -28,6 +28,8 @@ setup(
             'fake = rb2301_tutorial.fake:main',
             'logger = rb2301_tutorial.logger:main',
             'recorder = rb2301_tutorial.recorder:main',
+            'pubs = rb2301_tutorial.publishers:main',
+            'subs = rb2301_tutorial.subscribers:main',
         ],
     },
 )
