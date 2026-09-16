@@ -159,10 +159,7 @@ class ObstacleAvoidanceNode(Node):
 
                 # Normal potential-field control
                 x = forward_result
-                if abs(avoid_y) > 0.03:
-                    y = avoid_y
-                else:
-                    y = avoid_y + correction_factor
+                y = avoid_y + correction_factor
 
         # =====================================================
         # VELOCITY LIMITS
