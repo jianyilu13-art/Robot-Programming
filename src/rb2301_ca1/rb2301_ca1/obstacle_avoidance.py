@@ -26,7 +26,7 @@ class ObstacleAvoidanceNode(Node):
         self.timer = self.create_timer(0.05, self.timer_callback)  # Runs at 20Hz. Can be changed.
 
         # for escape mode
-        self.preferred_direction = 1.0
+        self.preferred_direction = -1.0
         self.in_escape_mode = False
         # for side displacement cehcking
         self.side_displacement = 0.0
@@ -76,13 +76,34 @@ class ObstacleAvoidanceNode(Node):
 
             distance = max(distance, 0.04)
 
-            strength = avoidance_gain * (
+            angle_deg = np.degrees(angle)
+
+            # Direction weights
+            if angle_deg < 10.0 or angle_deg >= 350.0:
+                direction_weight = 2.0       # front: 0° ± 10°
+
+            elif 80.0 <= angle_deg <= 100.0:
+                direction_weight = 2.0       # left: 90° ± 10°
+
+            elif 260.0 <= angle_deg <= 280.0:
+                direction_weight = 2.0       # right: 270° ± 10°
+
+            elif 170.0 <= angle_deg <= 190.0:
+                direction_weight = 1.0       # back: 180° ± 10°
+
+            elif 10.0 <= angle_deg < 170.0:
+                direction_weight = 1.0       # other left-side directions
+
+            else:
+                direction_weight = 1.0       # other right-side directions
+
+            strength = avoidance_gain * direction_weight * (
                 1.0 / distance
                 - 1.0 / safe_distance
             )
 
-            vx -= 0.5* strength * np.cos(angle)
-            vy -= 0.5* strength * np.sin(angle)
+            vx -= 0.5 * strength * np.cos(angle)
+            vy -= 0.5 * strength * np.sin(angle)
 
         return vx, vy
 
@@ -125,7 +146,7 @@ class ObstacleAvoidanceNode(Node):
                 y = avoid_y + correction_factor
 
             else:
-                if abs(avoid_y) < 0.02:
+                if abs(avoid_y) < 0.20:
                 # Keep the SAME escape direction
                     x = 0.0
                     y = 0.15 * self.preferred_direction
@@ -147,10 +168,10 @@ class ObstacleAvoidanceNode(Node):
                 self.in_escape_mode = True
 
                 # Choose escape direction once
-                if avoid_y > 0.02:
+                if avoid_y > 0.1:
                     self.preferred_direction = 1.0
 
-                elif avoid_y < -0.02:
+                elif avoid_y < -0.1:
                     self.preferred_direction = -1.0
 
                 else:
