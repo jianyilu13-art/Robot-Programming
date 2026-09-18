@@ -125,10 +125,15 @@ class ObstacleAvoidanceNode(Node):
                 y = avoid_y + correction_factor
 
             else:
-
+                if abs(avoid_y) < 0.02:
                 # Keep the SAME escape direction
-                x = 0.0
-                y = 0.25 * self.preferred_direction
+                    x = 0.0
+                    y = 0.15 * self.preferred_direction
+                else:
+                    # Keep the SAME escape direction
+                    x = 0.0
+                    y = avoid_y
+                    self.in_escape_mode = False
 
         # =====================================================
         # NORMAL MODE
@@ -142,10 +147,10 @@ class ObstacleAvoidanceNode(Node):
                 self.in_escape_mode = True
 
                 # Choose escape direction once
-                if avoid_y > 0.03:
+                if avoid_y > 0.02:
                     self.preferred_direction = 1.0
 
-                elif avoid_y < -0.03:
+                elif avoid_y < -0.02:
                     self.preferred_direction = -1.0
 
                 else:
@@ -153,13 +158,13 @@ class ObstacleAvoidanceNode(Node):
                     self.preferred_direction *= -1.0
 
                 x = 0.0
-                y = 0.25 * self.preferred_direction
+                y = 0.15 * self.preferred_direction
 
             else:
 
                 # Normal potential-field control
                 x = forward_result
-                if abs(avoid_y) > 0.03:
+                if abs(avoid_y) > 0.02:
                     y = avoid_y
                 else:
                     y = avoid_y + correction_factor
