@@ -12,6 +12,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/params', glob('params/*.yaml')),
+        ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -33,7 +34,8 @@ setup(
             'pubs = rb2301_tutorial.publishers:main',
             'subs = rb2301_tutorial.subscribers:main',
             'prms = rb2301_tutorial.parameters:main',
-            'prm_srvs = rb2301_tutorial.parameter_services:main'
+            'prm_srvs = rb2301_tutorial.parameter_services:main',
+            'sim = rb2301_tutorial.sim:main',
         ],
     },
 )
