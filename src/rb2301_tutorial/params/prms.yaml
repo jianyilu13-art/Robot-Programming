@@ -1,0 +1,11 @@
+parameters:
+    ros__parameters:
+        values:
+            bool_v: False
+            int_v: 7
+            dbl_v: 7.0
+            str_v: 'Lu'
+        bool_arr_v: [True, False]
+        int_arr_v: [7, 0, 7]
+        dbl_arr_v: [3.5, 0.0, 3.5]
+        str_arr_v: ['Jianyi', 'Lu']
