@@ -78,7 +78,6 @@
     </collision>
   </link>
 
-  <!-- must be fixed type bcos mecanum simulation is terrible. When mec sim is disabled, 'continuous' type will result in no tf transform -->
   <joint name="front_left_wheel_joint" type="fixed">
     <origin xyz="0.14398 0.087243 0.0179"
       rpy="0 0 0" />
@@ -122,7 +121,6 @@
     </collision>
   </link>
 
-  <!-- must be fixed type bcos mecanum simulation is terrible. When mec sim is disabled, 'continuous' type will result in no tf transform -->
   <joint name="front_right_wheel_joint" type="fixed">
     <origin
       xyz="0.14278 -0.087247 0.0179"
@@ -167,7 +165,6 @@
     </collision>
   </link>
 
-  <!-- must be fixed type bcos mecanum simulation is terrible. When mec sim is disabled, 'continuous' type will result in no tf transform -->
   <joint name="back_left_wheel_joint" type="fixed">
     <origin
       xyz="-0.00015 0.08725 0.0179"
@@ -212,7 +209,6 @@
     </collision>
   </link>
 
-  <!-- must be fixed type bcos mecanum simulation is terrible. When mec sim is disabled, 'continuous' type will result in no tf transform -->
   <joint name="back_right_wheel_joint" type="fixed">
     <origin
       xyz="0.00015 -0.08725 0.0179"
@@ -417,40 +413,10 @@
         <linear_acceleration>
           <x>
             <noise type="gaussian">
-              <stddev>0.0</stddev> 
-              <!-- 0.05 -->
+              <stddev>0.05</stddev>
             </noise>
           </x>
-          <y>
-            <noise type="gaussian">
-              <stddev>0.0</stddev>
-            </noise>
-          </y>
-          <z>
-            <noise type="gaussian">
-              <stddev>0.0</stddev>
-            </noise>
-          </z>
         </linear_acceleration>
-        <angular_velocity>
-          <x>
-            <noise type="gaussian">
-              <stddev>0.0</stddev>
-              <!-- 0.005 -->
-            </noise>
-          </x>
-          <y>
-            <noise type="gaussian">
-              <stddev>0.0</stddev>
-            </noise>
-          </y>
-          <z>
-            <noise type="gaussian">
-              <stddev>0.0</stddev>
-            </noise>
-          </z>
-        </angular_velocity>
-        <enable_orientation>true</enable_orientation>
       </imu>
     </sensor>
   </gazebo>
@@ -460,13 +426,12 @@
       <always_on>1</always_on>
       <update_rate>10</update_rate>
       <visualize>true</visualize>
-      <topic>/scan</topic>
+      <topic>scan</topic>
       <enable_metrics>true</enable_metrics>
-      <gz_frame_id>/base_laser_link</gz_frame_id> <!-- may be replaced with frame_id to follow sdf. Currently gives a warning that states that the spec doesn't exist, but the tag can actually be used. (as of 6 Sep 25) -->
       <lidar>
         <scan>
           <horizontal>
-            <samples>360</samples> <!-- bug: last reading is 0.05 if ogre is used and there is no compatible gpu. In this case, use the slower "export LIBGL_ALWAYS_SOFTWARE=1" (can be set in launch file) -->
+            <samples>720</samples> <!-- bug: last reading is 0.05 if ogre is used and there is no compatible gpu. In this case, use the slower "export LIBGL_ALWAYS_SOFTWARE=1" (can be set in launch file) -->
             <resolution>1</resolution>
             <min_angle>-3.14</min_angle>
             <max_angle>3.14</max_angle>
@@ -487,8 +452,7 @@
         <noise>
             <type>gaussian</type>
             <mean>0.0</mean>
-            <stddev>0.0</stddev>
-            <!-- 0.01 -->
+            <stddev>0.01</stddev>
         </noise>
       </lidar>
     </sensor>
@@ -504,20 +468,17 @@
     </plugin>
   </gazebo>
 
-  <gazebo>
-    <!-- odometry publisher will stop publishing if the robot doesn't move, publishing again only if it starts moving -->
-    <!-- xyz_offset (vec3), rpy_offset (vec3), gaussian_noise (dbl), odom_covariance_topic -->
-    <plugin filename="gz-sim-odometry-publisher-system"
-        name="gz::sim::systems::OdometryPublisher">
-      <odom_frame>/odom</odom_frame>
-      <odom_topic>/odom</odom_topic>
-      <tf_topic>/tf</tf_topic>
-      <gaussian_noise>0.0</gaussian_noise> <!-- affects velocity only -->
-      <!-- 0.01 -->
-      <robot_base_frame>/base_footprint</robot_base_frame>
-      <dimensions>2</dimensions> 
-      <odom_publish_frequency>50</odom_publish_frequency>
+
+
+  <!-- <gazebo>
+    <plugin name="object_controller" filename="libgazebo_ros_planar_move.so">
+      <commandTopic>cmd_vel</commandTopic>
+      <odometryTopic>odom</odometryTopic>
+      <odometryFrame>odom</odometryFrame>
+      <odometryRate>20.0</odometryRate>
+      <robotBaseFrame>base_footprint</robotBaseFrame>
     </plugin>
   </gazebo>
+  -->
 
 </robot>
