@@ -1,6 +1,7 @@
 import argparse
 import ast
 import configparser
+from importlib.resources import path
 import os
 import time
 
@@ -111,7 +112,6 @@ class WaypointNode(Node):
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10) # Publish to cmd_vel node
         self.timer = self.create_timer(0.05, self.timer_callback)  # Runs at 20Hz. Can be changed.
 
-        self.goal_list = goal_list
         self.map_array = map_array
         self.origin = origin # World (x, y) coordinate of the grid's [0, 0] corner. Use with grid_to_world()/world_to_grid()
         self.resolution = resolution # Metres per grid cell for this run (0.2 sim, 0.1 real -- real maze is half scale). Use with grid_to_world()/world_to_grid()
@@ -119,6 +119,15 @@ class WaypointNode(Node):
         self.pose = None
         self.path = [] # Set this to your planned route (a list of grid-index tuples, in travel order) once you've computed it -- it'll automatically show up in the terminal map print
         self._last_printed_path = None
+        self.nodes = {}
+
+        self.integral_x = 0.0
+        self.integral_y = 0.0
+        self.prev_error_x = 0.0
+        self.prev_error_y = 0.0
+
+        self.goal_list = goal_list
+        self.current_goal_idx = 0
 
     def print_map(self):
         '''Prints the occupancy grid to the terminal: walls, your current position ('S'), all goal points ('W'/'G'),
@@ -165,25 +174,296 @@ class WaypointNode(Node):
         twist_msg.angular.x, twist_msg.angular.y, twist_msg.angular.z = 0.0, 0.0, float(turn)
         self.publisher_.publish(twist_msg)
 
-    def set_waypoints(self, waypoints:list):
-        '''Set new waypoints when a goal has been reached'''
-        self.goal_reached = False
-        self.waypoints = waypoints
-        self.current_waypoint_idx = 0
+
+    def build_graph(self):
+
+        for i in range(self.map_array.shape[0]):
+            for j in range(self.map_array.shape[1]):
+
+                if self.map_array[i, j] <= 50:
+                    self.nodes[(i, j)] = GridNode((i, j))
+
+
+    def get_neighbors(self, node):
+
+        i, j = node.position
+        neighbors = []
+
+        directions = [
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1)
+        ]
+
+        for di, dj in directions:
+
+            neighbor_pos = (i + di, j + dj)
+
+            if neighbor_pos in self.nodes:
+                neighbors.append(self.nodes[neighbor_pos])
+
+        return neighbors
+
+
+    def a_star(self, start, goal):
+
+        self.build_graph()
+
+        start_node = self.nodes.get(start)
+        start_node.g = 0
+        start_node.h = (
+            abs(start[0] - goal[0])
+            + abs(start[1] - goal[1])
+        )
+        start_node.f = start_node.g + start_node.h
+
+        frontier = []
+        heapq.heappush(
+            frontier,
+            (start_node.f, start_node.g, start_node.position, start_node)
+        )
+
+        closed = set()
+
+        while frontier:
+
+            _, _, _, current = heapq.heappop(frontier)
+
+            if current.position in closed:
+                continue
+
+            # Goal check
+            if current.position == goal:
+
+                path = []
+
+                while current is not None:
+                    path.append(current.position)
+                    current = current.parent
+
+                path.reverse()
+                return path
+
+            closed.add(current.position)
+
+            # Expand current node's children
+            for neighbor in self.get_neighbors(current):
+
+                if neighbor.position in closed:
+                    continue
+
+                if current.g + 1 < neighbor.g:
+
+                    neighbor.parent = current
+                    neighbor.g = current.g + 1
+
+                    neighbor.h = (
+                        abs(neighbor.position[0] - goal[0])
+                        + abs(neighbor.position[1] - goal[1])
+                    )
+
+                    neighbor.f = neighbor.g + neighbor.h
+
+                    heapq.heappush(
+                        frontier,
+                        (
+                            neighbor.f,
+                            neighbor.g,
+                            neighbor.position,
+                            neighbor
+                        )
+                    )
+
+        return []
+
+
+    def simplify_path(self, path):
+
+        if len(path) <= 2:
+            return path
+
+        simplified = [path[0]]
+
+        # Direction of first movement
+        prev_dx = path[1][0] - path[0][0]
+        prev_dy = path[1][1] - path[0][1]
+
+        for i in range(1, len(path) - 1):
+
+            # Direction from current grid to next grid
+            dx = path[i + 1][0] - path[i][0]
+            dy = path[i + 1][1] - path[i][1]
+
+            # Direction changed -> current grid is a turning point
+            if dx != prev_dx or dy != prev_dy:
+                simplified.append(path[i])
+
+            prev_dx = dx
+            prev_dy = dy
+
+        # Always keep goal
+        simplified.append(path[-1])
+
+        return simplified
+
 
     def timer_callback(self):
         """Controller loop. Insert path planning and PID control logic here"""
+
+        # Cannot control robot until pose is received
         if self.pose is None:
-            return # Does not run if no pose received from Odom or Optitrack
+            return
+
         self.get_logger().debug(f"Pose: {self.pose}")
 
-        if self.path != self._last_printed_path: # Prints once immediately (map + start + goals), then again each time self.path changes
+        if self.path != self._last_printed_path:
             self.print_map()
             self._last_printed_path = list(self.path)
 
-        ###### INSERT CODE HERE ######
-        self.move_2D(0.5)
-        ###### INSERT CODE HERE ######
+
+        # --------------------------------------------------
+        # 1. PATH GENERATION
+        # --------------------------------------------------
+
+        if self.current_goal_idx >= len(self.goal_list):
+            self.move_2D(x=0.0, y=0.0)
+            return
+
+        if self.current_goal_idx < len(self.goal_list) and not self.path:
+
+            start = world_to_grid(
+                self.pose[0],
+                self.pose[1],
+                self.origin,
+                self.resolution
+            )
+
+            goal_x, goal_y = self.goal_list[self.current_goal_idx]
+
+            goal = world_to_grid(
+                goal_x,
+                goal_y,
+                self.origin,
+                self.resolution
+            )
+
+            raw_path = self.a_star(start, goal)
+
+            self.path = self.simplify_path(raw_path)
+
+
+
+        # --------------------------------------------------
+        # 2. GET CURRENT TARGET WAYPOINT
+        # --------------------------------------------------
+        
+        waypoint = self.path[0]
+
+        waypoint_x, waypoint_y = grid_to_world(
+            waypoint[0],
+            waypoint[1],
+            self.origin,
+            self.resolution
+        )
+
+
+        # --------------------------------------------------
+        # 3. CALCULATE POSITION ERROR
+        # --------------------------------------------------
+
+        error_x = waypoint_x - self.pose[0]
+        error_y = waypoint_y - self.pose[1]
+
+        distance = (error_x**2 + error_y**2)**0.5
+
+
+        # --------------------------------------------------
+        # 4. CHECK IF TARGET WAYPOINT IS REACHED
+        # --------------------------------------------------
+
+        if distance < 0.1:
+
+            self.path.pop(0)
+
+            self.integral_x = 0.0
+            self.integral_y = 0.0
+            self.prev_error_x = 0.0
+            self.prev_error_y = 0.0
+
+            self.move_2D(x=0.0, y=0.0)
+
+            if not self.path:
+
+                self.get_logger().info(
+                    f"Goal {self.current_goal_idx} reached"
+                )
+
+                self.current_goal_idx += 1
+
+                if self.current_goal_idx >= len(self.goal_list):
+                    self.move_2D(x=0.0, y=0.0)
+                    self.get_logger().info("All goals reached")
+
+            return
+
+
+        # --------------------------------------------------
+        # 5. PID CONTROLLER
+        # --------------------------------------------------
+
+        Kp = 5.0
+        Ki = 0.0
+        Kd = 0.1
+
+        dt = 0.05
+
+        # Integral
+        self.integral_x += error_x * dt
+        self.integral_y += error_y * dt
+
+        # Derivative
+        derivative_x = (error_x - self.prev_error_x) / dt
+        derivative_y = (error_y - self.prev_error_y) / dt
+
+        vx = (
+            Kp * error_x
+            + Ki * self.integral_x
+            + Kd * derivative_x
+        )
+
+        vy = (
+            Kp * error_y
+            + Ki * self.integral_y
+            + Kd * derivative_y
+        )
+
+        self.prev_error_x = error_x
+        self.prev_error_y = error_y
+
+        self.get_logger().info(
+            f"waypoint={waypoint}, "
+            f"world=({waypoint_x:.2f}, {waypoint_y:.2f}), "
+            f"error=({error_x:.2f}, {error_y:.2f}), "
+            f"velocity=({vx:.2f}, {vy:.2f})"
+        )
+
+        self.move_2D(x=vx, y=vy)
+
+
+
+class GridNode:
+    def __init__(self, position):
+        self.position = position
+
+        # Graph connections
+        self.neighbors = []
+
+        # A* variables
+        self.parent = None
+        self.g = float('inf')
+        self.h = 0
+        self.f = float('inf')
 
 
 class Grid():
