@@ -400,7 +400,7 @@ class WaypointNode(Node):
         # 4. CHECK IF TARGET WAYPOINT IS REACHED
         # --------------------------------------------------
 
-        if distance < 0.045:
+        if distance < 0.02:
 
             self.path.pop(0)
 
@@ -433,7 +433,7 @@ class WaypointNode(Node):
         # --------------------------------------------------
 
         Kp = 5.0
-        Ki = 0.1
+        Ki = 0.2
         Kd = 0.1
 
         dt = 0.05
