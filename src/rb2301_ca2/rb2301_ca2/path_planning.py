@@ -211,71 +211,94 @@ class WaypointNode(Node):
 
     def a_star(self, start, goal):
 
-        self.build_graph()
+        turn_penalty = 3.0
 
-        start_node = self.nodes.get(start)
-        start_node.g = 0
-        start_node.h = (
-            abs(start[0] - goal[0])
-            + abs(start[1] - goal[1])
-        )
-        start_node.f = start_node.g + start_node.h
+        # Four possible movement directions
+        directions = [
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1)
+        ]
+
+        # State = (position, incoming direction)
+        start_state = (start, None)
 
         frontier = []
-        heapq.heappush(
-            frontier,
-            (start_node.f, start_node.g, start_node.position, start_node)
-        )
+        heapq.heappush(frontier, (0, 0, start_state))
 
-        closed = set()
+        g_score = {start_state: 0}
+        parent = {start_state: None}
 
         while frontier:
 
-            _, _, _, current = heapq.heappop(frontier)
+            _, current_g, state = heapq.heappop(frontier)
 
-            if current.position in closed:
+            position, prev_direction = state
+
+            if current_g > g_score[state]:
                 continue
 
-            # Goal check
-            if current.position == goal:
+            # Goal reached
+            if position == goal:
 
                 path = []
 
-                while current is not None:
-                    path.append(current.position)
-                    current = current.parent
+                while state is not None:
+                    path.append(state[0])
+                    state = parent[state]
 
-                path.reverse()
-                return path
+                return path[::-1]
 
-            closed.add(current.position)
+            # Explore neighbors
+            for direction in directions:
 
-            # Expand current node's children
-            for neighbor in self.get_neighbors(current):
+                dx, dy = direction
 
-                if neighbor.position in closed:
+                neighbor = (
+                    position[0] + dx,
+                    position[1] + dy
+                )
+
+                # Check free cell
+                if (
+                    neighbor[0] < 0
+                    or neighbor[0] >= self.map_array.shape[0]
+                    or neighbor[1] < 0
+                    or neighbor[1] >= self.map_array.shape[1]
+                ):
                     continue
 
-                if current.g + 1 < neighbor.g:
+                if self.map_array[neighbor] != 0:
+                    continue
 
-                    neighbor.parent = current
-                    neighbor.g = current.g + 1
+                # Movement cost
+                cost = 1.0
 
-                    neighbor.h = (
-                        abs(neighbor.position[0] - goal[0])
-                        + abs(neighbor.position[1] - goal[1])
+                # Additional turning cost
+                if prev_direction is not None and direction != prev_direction:
+                    cost += turn_penalty
+
+                new_g = current_g + cost
+
+                new_state = (neighbor, direction)
+
+                if new_g < g_score.get(new_state, float('inf')):
+
+                    g_score[new_state] = new_g
+                    parent[new_state] = state
+
+                    # Manhattan heuristic
+                    h = (
+                        abs(neighbor[0] - goal[0])
+                        + abs(neighbor[1] - goal[1])
                     )
 
-                    neighbor.f = neighbor.g + neighbor.h
+                    f = new_g + h
 
                     heapq.heappush(
                         frontier,
-                        (
-                            neighbor.f,
-                            neighbor.g,
-                            neighbor.position,
-                            neighbor
-                        )
+                        (f, new_g, new_state)
                     )
 
         return []
