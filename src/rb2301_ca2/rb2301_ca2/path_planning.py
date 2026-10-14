@@ -438,48 +438,45 @@ class WaypointNode(Node):
 
         dt = 0.05
 
-        # Distance PID gains
+        # PID gains
         Kp_x = 1.2
         Ki_x = 0.05
         Kd_x = 0.1
 
         # Velocity limits
         min_speed = 0.2
-        max_speed = 1
-        constant_omega = 2
+        max_speed = 1.0
+        constant_omega = 2.0
 
         theta_tolerance = np.deg2rad(5)
 
         # --------------------------------------------------
-        # 5.1. CALCULATE TWO POSSIBLE HEADINGS
+        # 5.1. HEADING ERROR
         # --------------------------------------------------
 
         theta = np.deg2rad(self.pose[2])
         theta_target = np.arctan2(error_y, error_x)
 
-        error_forward = np.arctan2(
-            np.sin(theta_target - theta),
-            np.cos(theta_target - theta)
-        )
+        # Normalize angle to [-pi, pi)
+        def wrap(angle):
+            return (angle + np.pi) % (2 * np.pi) - np.pi
 
-        error_backward = np.arctan2(
-            np.sin(theta_target + np.pi - theta),
-            np.cos(theta_target + np.pi - theta)
-        )
+        # Forward heading error
+        error_forward = wrap(theta_target - theta)
 
         # Choose direction once per waypoint
         if self.direction is None:
-            if abs(error_forward) <= abs(error_backward):
+            if abs(error_forward) <= np.pi / 2:
                 self.direction = 1.0
             else:
                 self.direction = -1.0
 
         direction = self.direction
 
-        if direction > 0:
-            error_theta = error_forward
-        else:
-            error_theta = error_backward
+        # Final heading error
+        error_theta = wrap(
+            theta_target - theta + (np.pi if direction < 0 else 0)
+        )
 
         # --------------------------------------------------
         # 5.2. TURN OR MOVE
@@ -497,7 +494,7 @@ class WaypointNode(Node):
 
         else:
 
-            # MOVE STRAIGHT
+            # MOVE FORWARD / BACKWARD
             omega = 0.0
 
             # Distance PID
@@ -521,7 +518,7 @@ class WaypointNode(Node):
 
             self.prev_error_x = distance
 
-            # Forward or backward with speed limits
+            # Apply direction and speed limits
             vx = direction * np.clip(
                 max(0.0, vx),
                 min_speed,
