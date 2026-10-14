@@ -130,6 +130,7 @@ class WaypointNode(Node):
         self.current_goal_idx = 0
 
         self.wait_until = None
+        self.direction = None
 
     def print_map(self):
         '''Prints the occupancy grid to the terminal: walls, your current position ('S'), all goal points ('W'/'G'),
@@ -400,9 +401,12 @@ class WaypointNode(Node):
         # 4. CHECK IF TARGET WAYPOINT IS REACHED
         # --------------------------------------------------
 
-        if distance < 0.02:
+        if distance < 0.05:  # 5cm threshold
 
             self.path.pop(0)
+
+            # Reset direction for next waypoint
+            self.direction = None
 
             self.integral_x = 0.0
             self.integral_y = 0.0
@@ -429,46 +433,116 @@ class WaypointNode(Node):
 
 
         # --------------------------------------------------
-        # 5. PID CONTROLLER
+        # 5. CONTROLLER (CONSTANT TURN + DISTANCE PID)
         # --------------------------------------------------
-
-        Kp = 5.0
-        Ki = 0.2
-        Kd = 0.1
 
         dt = 0.05
 
-        # Integral
-        self.integral_x += error_x * dt
-        self.integral_y += error_y * dt
+        # Distance PID gains
+        Kp_x = 1.2
+        Ki_x = 0.05
+        Kd_x = 0.1
 
-        # Derivative
-        derivative_x = (error_x - self.prev_error_x) / dt
-        derivative_y = (error_y - self.prev_error_y) / dt
+        # Velocity limits
+        min_speed = 0.2
+        max_speed = 1
+        constant_omega = 2
 
-        vx = (
-            Kp * error_x
-            + Ki * self.integral_x
-            + Kd * derivative_x
+        theta_tolerance = np.deg2rad(5)
+
+        # --------------------------------------------------
+        # 5.1. CALCULATE TWO POSSIBLE HEADINGS
+        # --------------------------------------------------
+
+        theta = np.deg2rad(self.pose[2])
+        theta_target = np.arctan2(error_y, error_x)
+
+        error_forward = np.arctan2(
+            np.sin(theta_target - theta),
+            np.cos(theta_target - theta)
         )
 
-        vy = (
-            Kp * error_y
-            + Ki * self.integral_y
-            + Kd * derivative_y
+        error_backward = np.arctan2(
+            np.sin(theta_target + np.pi - theta),
+            np.cos(theta_target + np.pi - theta)
         )
 
-        self.prev_error_x = error_x
-        self.prev_error_y = error_y
+        # Choose direction once per waypoint
+        if self.direction is None:
+            if abs(error_forward) <= abs(error_backward):
+                self.direction = 1.0
+            else:
+                self.direction = -1.0
+
+        direction = self.direction
+
+        if direction > 0:
+            error_theta = error_forward
+        else:
+            error_theta = error_backward
+
+        # --------------------------------------------------
+        # 5.2. TURN OR MOVE
+        # --------------------------------------------------
+
+        if abs(error_theta) > theta_tolerance:
+
+            # TURN IN PLACE
+            vx = 0.0
+            omega = np.sign(error_theta) * constant_omega
+
+            # Reset distance PID while turning
+            self.integral_x = 0.0
+            self.prev_error_x = None
+
+        else:
+
+            # MOVE STRAIGHT
+            omega = 0.0
+
+            # Distance PID
+            self.integral_x += distance * dt
+            self.integral_x = np.clip(
+                self.integral_x, -0.5, 0.5
+            )
+
+            if self.prev_error_x is None:
+                derivative_x = 0.0
+            else:
+                derivative_x = (
+                    distance - self.prev_error_x
+                ) / dt
+
+            vx = (
+                Kp_x * distance
+                + Ki_x * self.integral_x
+                + Kd_x * derivative_x
+            )
+
+            self.prev_error_x = distance
+
+            # Forward or backward with speed limits
+            vx = direction * np.clip(
+                max(0.0, vx),
+                min_speed,
+                max_speed
+            )
+
+        # --------------------------------------------------
+        # 5.3. LOGGING AND PUBLISHING
+        # --------------------------------------------------
 
         self.get_logger().info(
             f"waypoint={waypoint}, "
             f"world=({waypoint_x:.2f}, {waypoint_y:.2f}), "
-            f"error=({error_x:.2f}, {error_y:.2f}), "
-            f"velocity=({vx:.2f}, {vy:.2f})"
+            f"distance={distance:.3f}, "
+            f"heading_error={np.rad2deg(error_theta):.1f} deg, "
+            f"direction={'forward' if direction > 0 else 'backward'}, "
+            f"vx={vx:.2f}, omega={omega:.2f}"
         )
 
-        self.move_2D(x=vx, y=vy)
+        self.move_2D(x=vx, y=0.0, turn=omega)
+        
 
 
 
