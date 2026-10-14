@@ -424,7 +424,7 @@ class WaypointNode(Node):
         # 4. CHECK IF TARGET WAYPOINT IS REACHED
         # --------------------------------------------------
 
-        if distance < 0.05:  # 5cm threshold
+        if distance < 0.01:  # 5cm threshold
 
             self.path.pop(0)
 
@@ -462,16 +462,16 @@ class WaypointNode(Node):
         dt = 0.05
 
         # PID gains
-        Kp_x = 1.2
-        Ki_x = 0.05
+        Kp_x = 1
+        Ki_x = 0.1
         Kd_x = 0.1
 
         # Velocity limits
         min_speed = 0.2
         max_speed = 1.0
-        constant_omega = 2.0
+        constant_omega = 1.5
 
-        theta_tolerance = np.deg2rad(5)
+        theta_tolerance = np.deg2rad(1.5)
 
         # --------------------------------------------------
         # 5.1. HEADING ERROR
