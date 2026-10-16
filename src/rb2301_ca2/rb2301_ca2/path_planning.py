@@ -178,35 +178,35 @@ class WaypointNode(Node):
         self.publisher_.publish(twist_msg)
 
 
-    def build_graph(self):
+    # def build_graph(self):
 
-        for i in range(self.map_array.shape[0]):
-            for j in range(self.map_array.shape[1]):
+    #     for i in range(self.map_array.shape[0]):
+    #         for j in range(self.map_array.shape[1]):
 
-                if self.map_array[i, j] == 0:
-                    self.nodes[(i, j)] = GridNode((i, j))
+    #             if self.map_array[i, j] == 0:
+    #                 self.nodes[(i, j)] = GridNode((i, j))
 
 
-    def get_neighbors(self, node):
+    # def get_neighbors(self, node):
 
-        i, j = node.position
-        neighbors = []
+    #     i, j = node.position
+    #     neighbors = []
 
-        directions = [
-            (-1, 0),
-            (1, 0),
-            (0, -1),
-            (0, 1)
-        ]
+    #     directions = [
+    #         (-1, 0),
+    #         (1, 0),
+    #         (0, -1),
+    #         (0, 1)
+    #     ]
 
-        for di, dj in directions:
+    #     for di, dj in directions:
 
-            neighbor_pos = (i + di, j + dj)
+    #         neighbor_pos = (i + di, j + dj)
 
-            if neighbor_pos in self.nodes:
-                neighbors.append(self.nodes[neighbor_pos])
+    #         if neighbor_pos in self.nodes:
+    #             neighbors.append(self.nodes[neighbor_pos])
 
-        return neighbors
+    #     return neighbors
 
 
     def a_star(self, start, goal):
@@ -566,18 +566,18 @@ class WaypointNode(Node):
 
 
 
-class GridNode:
-    def __init__(self, position):
-        self.position = position
+# class GridNode:
+#     def __init__(self, position):
+#         self.position = position
 
-        # Graph connections
-        self.neighbors = []
+#         # Graph connections
+#         self.neighbors = []
 
-        # A* variables
-        self.parent = None
-        self.g = float('inf')
-        self.h = 0
-        self.f = float('inf')
+#         # A* variables
+#         self.parent = None
+#         self.g = float('inf')
+#         self.h = 0
+#         self.f = float('inf')
 
 
 class Grid():
