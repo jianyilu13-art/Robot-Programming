@@ -209,6 +209,34 @@ class WaypointNode(Node):
     #     return neighbors
 
 
+    def obstacle_penalty(self, position):
+        i, j = position
+
+        min_dist = float('inf')
+
+        for di in range(-2, 3):
+            for dj in range(-2, 3):
+
+                ni = i + di
+                nj = j + dj
+
+                if (
+                    0 <= ni < self.map_array.shape[0]
+                    and 0 <= nj < self.map_array.shape[1]
+                ):
+                    if self.map_array[ni, nj] != 0:
+                        dist = max(abs(di), abs(dj))
+                        min_dist = min(min_dist, dist)
+
+        if min_dist <= 1:
+            return 1
+
+        elif min_dist <= 2:
+            return 0.5
+
+        return 0.0
+    
+
     def a_star(self, start, goal):
 
         turn_penalty = 3.0
@@ -278,6 +306,9 @@ class WaypointNode(Node):
                 # Additional turning cost
                 if prev_direction is not None and direction != prev_direction:
                     cost += turn_penalty
+
+                # Additional obstacle proximity cost (NEW)
+                cost += self.obstacle_penalty(neighbor)
 
                 new_g = current_g + cost
 
@@ -424,7 +455,7 @@ class WaypointNode(Node):
         # 4. CHECK IF TARGET WAYPOINT IS REACHED
         # --------------------------------------------------
 
-        if distance < 0.01:  # 5cm threshold
+        if distance < 0.03:  # 5cm threshold
 
             self.path.pop(0)
 
@@ -469,9 +500,9 @@ class WaypointNode(Node):
         # Velocity limits
         min_speed = 0.2
         max_speed = 1.0
-        constant_omega = 1.5
+        constant_omega = 2
 
-        theta_tolerance = np.deg2rad(1.5)
+        theta_tolerance = np.deg2rad(3)
 
         # --------------------------------------------------
         # 5.1. HEADING ERROR

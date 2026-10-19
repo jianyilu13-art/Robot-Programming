@@ -178,20 +178,42 @@ class WaypointNode(Node):
         self.publisher_.publish(twist_msg)
 
 
-    def build_graph(self):
+    # def build_graph(self):
 
-        for i in range(self.map_array.shape[0]):
-            for j in range(self.map_array.shape[1]):
+    #     for i in range(self.map_array.shape[0]):
+    #         for j in range(self.map_array.shape[1]):
 
-                if self.map_array[i, j] == 0:
-                    self.nodes[(i, j)] = GridNode((i, j))
+    #             if self.map_array[i, j] == 0:
+    #                 self.nodes[(i, j)] = GridNode((i, j))
 
 
-    def get_neighbors(self, node):
+    # def get_neighbors(self, node):
 
-        i, j = node.position
-        neighbors = []
+    #     i, j = node.position
+    #     neighbors = []
 
+    #     directions = [
+    #         (-1, 0),
+    #         (1, 0),
+    #         (0, -1),
+    #         (0, 1)
+    #     ]
+
+    #     for di, dj in directions:
+
+    #         neighbor_pos = (i + di, j + dj)
+
+    #         if neighbor_pos in self.nodes:
+    #             neighbors.append(self.nodes[neighbor_pos])
+
+    #     return neighbors
+
+
+    def a_star(self, start, goal):
+
+        turn_penalty = 3.0
+
+        # Four possible movement directions
         directions = [
             (-1, 0),
             (1, 0),
@@ -199,83 +221,84 @@ class WaypointNode(Node):
             (0, 1)
         ]
 
-        for di, dj in directions:
-
-            neighbor_pos = (i + di, j + dj)
-
-            if neighbor_pos in self.nodes:
-                neighbors.append(self.nodes[neighbor_pos])
-
-        return neighbors
-
-
-    def a_star(self, start, goal):
-
-        self.build_graph()
-
-        start_node = self.nodes.get(start)
-        start_node.g = 0
-        start_node.h = (
-            abs(start[0] - goal[0])
-            + abs(start[1] - goal[1])
-        )
-        start_node.f = start_node.g + start_node.h
+        # State = (position, incoming direction)
+        start_state = (start, None)
 
         frontier = []
-        heapq.heappush(
-            frontier,
-            (start_node.f, start_node.g, start_node.position, start_node)
-        )
+        heapq.heappush(frontier, (0, 0, start_state))
 
-        closed = set()
+        g_score = {start_state: 0}
+        parent = {start_state: None}
 
         while frontier:
 
-            _, _, _, current = heapq.heappop(frontier)
+            _, current_g, state = heapq.heappop(frontier)
 
-            if current.position in closed:
+            position, prev_direction = state
+
+            if current_g > g_score[state]:
                 continue
 
-            # Goal check
-            if current.position == goal:
+            # Goal reached
+            if position == goal:
 
                 path = []
 
-                while current is not None:
-                    path.append(current.position)
-                    current = current.parent
+                while state is not None:
+                    path.append(state[0])
+                    state = parent[state]
 
-                path.reverse()
-                return path
+                return path[::-1]
 
-            closed.add(current.position)
+            # Explore neighbors
+            for direction in directions:
 
-            # Expand current node's children
-            for neighbor in self.get_neighbors(current):
+                dx, dy = direction
 
-                if neighbor.position in closed:
+                neighbor = (
+                    position[0] + dx,
+                    position[1] + dy
+                )
+
+                # Check free cell
+                if (
+                    neighbor[0] < 0
+                    or neighbor[0] >= self.map_array.shape[0]
+                    or neighbor[1] < 0
+                    or neighbor[1] >= self.map_array.shape[1]
+                ):
                     continue
 
-                if current.g + 1 < neighbor.g:
+                if self.map_array[neighbor] != 0:
+                    continue
 
-                    neighbor.parent = current
-                    neighbor.g = current.g + 1
+                # Movement cost
+                cost = 1.0
 
-                    neighbor.h = (
-                        abs(neighbor.position[0] - goal[0])
-                        + abs(neighbor.position[1] - goal[1])
+                # Additional turning cost
+                if prev_direction is not None and direction != prev_direction:
+                    cost += turn_penalty
+
+                new_g = current_g + cost
+
+                new_state = (neighbor, direction)
+
+                if new_g < g_score.get(new_state, float('inf')):
+
+                    g_score[new_state] = new_g
+                    parent[new_state] = state
+
+                    # Manhattan heuristic
+                    h = (
+                        abs(neighbor[0] - goal[0])
+                        + abs(neighbor[1] - goal[1])
                     )
 
-                    neighbor.f = neighbor.g + neighbor.h
+                    f = new_g + h
 
                     heapq.heappush(
                         frontier,
-                        (
-                            neighbor.f,
-                            neighbor.g,
-                            neighbor.position,
-                            neighbor
-                        )
+                        (f, new_g, new_state)
                     )
 
         return []
@@ -401,7 +424,7 @@ class WaypointNode(Node):
         # 4. CHECK IF TARGET WAYPOINT IS REACHED
         # --------------------------------------------------
 
-        if distance < 0.05:  # 5cm threshold
+        if distance < 0.01:  # 5cm threshold
 
             self.path.pop(0)
 
@@ -438,48 +461,45 @@ class WaypointNode(Node):
 
         dt = 0.05
 
-        # Distance PID gains
-        Kp_x = 1.2
-        Ki_x = 0.05
+        # PID gains
+        Kp_x = 1
+        Ki_x = 0.1
         Kd_x = 0.1
 
         # Velocity limits
-        min_speed = 0.12
-        max_speed = 0.5
-        constant_omega = 0.8
+        min_speed = 0.2
+        max_speed = 1.0
+        constant_omega = 1.5
 
-        theta_tolerance = np.deg2rad(5)
+        theta_tolerance = np.deg2rad(1.5)
 
         # --------------------------------------------------
-        # 5.1. CALCULATE TWO POSSIBLE HEADINGS
+        # 5.1. HEADING ERROR
         # --------------------------------------------------
 
         theta = np.deg2rad(self.pose[2])
         theta_target = np.arctan2(error_y, error_x)
 
-        error_forward = np.arctan2(
-            np.sin(theta_target - theta),
-            np.cos(theta_target - theta)
-        )
+        # Normalize angle to [-pi, pi)
+        def wrap(angle):
+            return (angle + np.pi) % (2 * np.pi) - np.pi
 
-        error_backward = np.arctan2(
-            np.sin(theta_target + np.pi - theta),
-            np.cos(theta_target + np.pi - theta)
-        )
+        # Forward heading error
+        error_forward = wrap(theta_target - theta)
 
         # Choose direction once per waypoint
         if self.direction is None:
-            if abs(error_forward) <= abs(error_backward):
+            if abs(error_forward) <= np.pi / 2:
                 self.direction = 1.0
             else:
                 self.direction = -1.0
 
         direction = self.direction
 
-        if direction > 0:
-            error_theta = error_forward
-        else:
-            error_theta = error_backward
+        # Final heading error
+        error_theta = wrap(
+            theta_target - theta + (np.pi if direction < 0 else 0)
+        )
 
         # --------------------------------------------------
         # 5.2. TURN OR MOVE
@@ -497,7 +517,7 @@ class WaypointNode(Node):
 
         else:
 
-            # MOVE STRAIGHT
+            # MOVE FORWARD / BACKWARD
             omega = 0.0
 
             # Distance PID
@@ -521,7 +541,7 @@ class WaypointNode(Node):
 
             self.prev_error_x = distance
 
-            # Forward or backward with speed limits
+            # Apply direction and speed limits
             vx = direction * np.clip(
                 max(0.0, vx),
                 min_speed,
@@ -534,6 +554,7 @@ class WaypointNode(Node):
 
         self.get_logger().info(
             f"waypoint={waypoint}, "
+            f"world=({waypoint_x:.2f}, {waypoint_y:.2f}), "
             f"distance={distance:.3f}, "
             f"heading_error={np.rad2deg(error_theta):.1f} deg, "
             f"direction={'forward' if direction > 0 else 'backward'}, "
@@ -545,18 +566,18 @@ class WaypointNode(Node):
 
 
 
-class GridNode:
-    def __init__(self, position):
-        self.position = position
+# class GridNode:
+#     def __init__(self, position):
+#         self.position = position
 
-        # Graph connections
-        self.neighbors = []
+#         # Graph connections
+#         self.neighbors = []
 
-        # A* variables
-        self.parent = None
-        self.g = float('inf')
-        self.h = 0
-        self.f = float('inf')
+#         # A* variables
+#         self.parent = None
+#         self.g = float('inf')
+#         self.h = 0
+#         self.f = float('inf')
 
 
 class Grid():
