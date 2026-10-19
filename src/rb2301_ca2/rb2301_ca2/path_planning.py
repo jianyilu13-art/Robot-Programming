@@ -128,6 +128,7 @@ class WaypointNode(Node):
 
         self.goal_list = goal_list
         self.current_goal_idx = 0
+        self.completed_paths = [] 
 
         self.wait_until = None
         self.direction = None
@@ -177,36 +178,6 @@ class WaypointNode(Node):
         twist_msg.angular.x, twist_msg.angular.y, twist_msg.angular.z = 0.0, 0.0, float(turn)
         self.publisher_.publish(twist_msg)
 
-
-    # def build_graph(self):
-
-    #     for i in range(self.map_array.shape[0]):
-    #         for j in range(self.map_array.shape[1]):
-
-    #             if self.map_array[i, j] == 0:
-    #                 self.nodes[(i, j)] = GridNode((i, j))
-
-
-    # def get_neighbors(self, node):
-
-    #     i, j = node.position
-    #     neighbors = []
-
-    #     directions = [
-    #         (-1, 0),
-    #         (1, 0),
-    #         (0, -1),
-    #         (0, 1)
-    #     ]
-
-    #     for di, dj in directions:
-
-    #         neighbor_pos = (i + di, j + dj)
-
-    #         if neighbor_pos in self.nodes:
-    #             neighbors.append(self.nodes[neighbor_pos])
-
-    #     return neighbors
 
 
     def obstacle_penalty(self, position):
@@ -425,6 +396,10 @@ class WaypointNode(Node):
 
             self.path = self.simplify_path(raw_path)
 
+            # Save the complete path for logging
+            if self.path:
+                self.completed_paths.append(self.path.copy())
+
 
 
         # --------------------------------------------------
@@ -481,7 +456,13 @@ class WaypointNode(Node):
 
                 if self.current_goal_idx >= len(self.goal_list):
                     self.move_2D(x=0.0, y=0.0)
-                    self.get_logger().info("All goals reached")
+                        
+                    self.get_logger().info("===== ALL GOALS REACHED =====")
+
+                    for i, path in enumerate(self.completed_paths):
+                        self.get_logger().info(
+                            f"Goal {i + 1} complete planned path: {path}"
+                        )
 
             return
 
@@ -595,20 +576,6 @@ class WaypointNode(Node):
         self.move_2D(x=vx, y=0.0, turn=omega)
         
 
-
-
-# class GridNode:
-#     def __init__(self, position):
-#         self.position = position
-
-#         # Graph connections
-#         self.neighbors = []
-
-#         # A* variables
-#         self.parent = None
-#         self.g = float('inf')
-#         self.h = 0
-#         self.f = float('inf')
 
 
 class Grid():
