@@ -430,7 +430,7 @@ class WaypointNode(Node):
         # 4. CHECK IF TARGET WAYPOINT IS REACHED
         # --------------------------------------------------
 
-        if distance < 0.03:  # 5cm threshold
+        if distance < 0.03:  # 3cm threshold
 
             self.path.pop(0)
 

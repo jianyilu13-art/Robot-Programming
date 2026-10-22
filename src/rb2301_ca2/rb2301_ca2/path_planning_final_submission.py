@@ -1,7 +1,7 @@
 import argparse
-import ast
 import configparser
-from importlib.resources import path
+import json
+import math
 import os
 import time
 
@@ -27,9 +27,8 @@ np.set_printoptions(
 
 set_logger_level("waypoint", level=LoggingSeverity.DEBUG) # Configure to either LoggingSeverity.INFO or LoggingSeverity.DEBUG
 
-occupancy_grid_resolution = 0.2 # Sim (and grid array) resolution, in metres per cell
-irl_resolution = occupancy_grid_resolution / 2 # The real maze is built at half the scale of the Gazebo maze -- same layout, 0.1m cells instead of 0.2m
-max_translate_velocity = 1.4 # Overwritten in main() based on sim vs real-life; 0.3m/s cap for real life, please keep that in place
+occupancy_grid_resolution = 0.2 # Sim grid resolution, in metres per cell (the real maze uses the same 0.2m cells, see ca2_irl_layout.json)
+max_translate_velocity = 1.4 # Overwritten in main() based on sim vs real-life; 0.4m/s cap for real life, please keep that in place
 
 _PACKAGE_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -49,48 +48,97 @@ def world_to_grid(x:float, y:float, origin:tuple, resolution:float=occupancy_gri
     return (int(np.floor((x - origin[0]) / resolution)), int(np.floor((y - origin[1]) / resolution)))
 
 
-# --- Sim / real-life maze profiles ------------------------------------------
-# The simulation maze and both real mazes are built to the SAME layout, so
-# they all load the same occupancy grid array (ca2_sim_map.npy). Everything
-# that differs between them -- where the grid's [0, 0] corner sits in the
-# world frame, the cell resolution (the real maze is built at half scale),
-# the goal points, and the speed cap -- lives in one of these profiles,
-# picked by a single switch: run without --maze for simulation, or with
-# --maze 0 / --maze 1 for a real maze. The two real mazes' placement and
-# goal points live in optitrack_variables.config so they can be updated
-# without touching this file.
-MAP_FILE = "ca2_sim_map.npy"
-
+# --- Sim / real-life profiles -----------------------------------------------
+# Run without arguments for the simulation. For the real maze pass
+# --run test1 | test2 | full  (see README). Everything that differs between
+# sim and real -- which map to load, the cell resolution, where the grid's
+# [0, 0] corner sits in the frame your pose is reported in, the goal points,
+# the speed cap -- lives in one of these profiles.
 sim_config = {
-    "map_file": MAP_FILE,
+    "map_file": "ca2_sim_map.npy",
     "origin": (-1.0, -5.0),
     "resolution": occupancy_grid_resolution,
     "goal_list": [(3.5, -3.5), (3.3, 0.3), (2.5, -3.5), (-0.3, -3.7)],
     "max_translate_velocity": 1.4,
 }
 
-def load_irl_config(maze_index:int) -> dict:
-    '''Load a real-maze profile (origin + goal list) for maze 0 or maze 1 from optitrack_variables.config'''
+IRL_RUNS = ("test1", "test2", "full")
+
+
+# --- Real maze <-> Optitrack frame -------------------------------------------
+# The real maze is a fixed layout (ca2_irl_map.npy + ca2_irl_layout.json, in
+# "maze-local" metres: (0, 0) is the outer corner of array cell [0, 0], +x runs
+# along array axis 0, +y along axis 1 -- exactly like the sim grid). Optitrack
+# reports poses in ITS OWN frame, wherever the maze happens to be taped down.
+# optitrack_variables.config holds the 3 numbers that relate the two:
+#   origin_x, origin_y : Optitrack coordinates of the maze's (0, 0) corner
+#   rotation_deg       : angle of the maze's +x axis in the Optitrack frame
+#                        (counter-clockwise positive, degrees)
+# The pose from Optitrack is converted into the maze frame before your code
+# sees it, so self.origin is (0, 0) and everything else (world_to_grid,
+# goal_list, ...) works exactly like in simulation.
+def wrap_deg(angle:float) -> float:
+    '''Wrap an angle in degrees into [-180, 180).'''
+    return (angle + 180.0) % 360.0 - 180.0
+
+def optitrack_to_maze(x:float, y:float, heading_deg:float, frame:dict) -> tuple:
+    '''Optitrack-frame pose (x, y, heading in degrees) -> maze-frame pose.'''
+    dx, dy = x - frame["origin_x"], y - frame["origin_y"]
+    r = math.radians(frame["rotation_deg"])
+    c, s = math.cos(r), math.sin(r)
+    return (c * dx + s * dy, -s * dx + c * dy,
+            wrap_deg(heading_deg - frame["rotation_deg"] - frame.get("heading_offset_deg", 0.0))) # offset: the Motive rigid body's "forward" vs the robot's front
+
+def maze_to_optitrack(mx:float, my:float, heading_deg:float, frame:dict) -> tuple:
+    '''Inverse of optitrack_to_maze (handy for working out where to place the robot).'''
+    r = math.radians(frame["rotation_deg"])
+    c, s = math.cos(r), math.sin(r)
+    return (frame["origin_x"] + c * mx - s * my, frame["origin_y"] + s * mx + c * my,
+            wrap_deg(heading_deg + frame["rotation_deg"] + frame.get("heading_offset_deg", 0.0)))
+
+def robot_frame(config:dict, robot_number:int) -> dict:
+    '''The frame for one robot: the shared origin/rotation plus that robot's heading offset (per-robot value from the config if listed).'''
+    frame = dict(config["frame"])
+    frame["heading_offset_deg"] = config["heading_offsets"].get(robot_number, frame["heading_offset_deg"])
+    return frame
+
+def load_irl_config(run:str) -> dict:
+    '''Build the real-maze profile for run "test1", "test2" or "full".'''
+    if run not in IRL_RUNS:
+        raise ValueError(f"--run must be one of {IRL_RUNS}, got {run!r}")
+    with open(os.path.join(_PACKAGE_DIR, "ca2_irl_layout.json")) as f:
+        layout = json.load(f)
     parser = configparser.ConfigParser()
     config_path = os.path.join(_PACKAGE_DIR, "optitrack_variables.config")
-    parser.read(config_path)
-    section = f"maze{maze_index}"
-    if section not in parser:
-        raise ValueError(f"No [{section}] section found in {config_path}")
-    origin = (parser.getfloat(section, "origin_x"), parser.getfloat(section, "origin_y"))
-    goal_list = list(ast.literal_eval(f"[{parser.get(section, 'goal_list')}]"))
+    if not parser.read(config_path):
+        raise FileNotFoundError(f"Could not read {config_path}")
+    frame = {
+        "origin_x": parser.getfloat("frame", "origin_x"),
+        "origin_y": parser.getfloat("frame", "origin_y"),
+        "rotation_deg": parser.getfloat("frame", "rotation_deg"),
+    }
+    # Rigid bodies are created in Motive with the robot facing the maze's +y direction, so the rigid body's zero heading IS maze +y
+    # (maze heading 90 deg): heading_maze = reported + 90 = reported - rotation - offset  =>  offset = -(rotation + 90). "auto" means that.
+    raw_offset = parser.get("frame", "heading_offset_deg", fallback="auto").strip().lower()
+    frame["heading_offset_deg"] = wrap_deg(-(frame["rotation_deg"] + 90.0)) if raw_offset == "auto" else float(raw_offset)
+    heading_offsets = {int(k): float(v) for k, v in parser.items("heading_offsets")} if parser.has_section("heading_offsets") else {}
     return {
-        "map_file": MAP_FILE,
-        "origin": origin,
-        "resolution": irl_resolution, # Real maze is half the scale of the sim maze (0.1m cells, not 0.2m)
-        "goal_list": goal_list,
-        "max_translate_velocity": 0.3, # Please keep this in place; 0.3m/s is more than fast enough
+        "map_file": "ca2_irl_map.npy",
+        "origin": (0.0, 0.0), # pose is converted into the maze frame, so the grid corner is (0, 0)
+        "resolution": float(layout["resolution"]),
+        "goal_list": [tuple(g) for g in layout["runs"][run]["goals"]],
+        "start": tuple(layout["runs"][run]["start"]),
+        "frame": frame,
+        "robot_number": parser.getint("robot", "number"),
+        "heading_offsets": heading_offsets, # per-robot override of frame["heading_offset_deg"]
+        "max_translate_velocity": 0.4, # Please keep this in place
     }
 
 
 class WaypointNode(Node):
     '''Node to calculate path and move robot towards given goal_coordinates, using pose info from either gazebo odometer or optitrack'''
-    def __init__(self, map_array:np.array, goal_list:list, is_simulation:bool=True, origin:tuple=(0.0, 0.0), resolution:float=occupancy_grid_resolution):
+    def __init__(self, map_array:np.array, goal_list:list, is_simulation:bool=True, origin:tuple=(0.0, 0.0), resolution:float=occupancy_grid_resolution,
+                 frame:dict=None, robot_number:int=3, expected_start:tuple=None, calibrate:bool=False):
         super().__init__('waypoint')
         self.get_logger().info("Starting WaypointNode")
 
@@ -104,7 +152,7 @@ class WaypointNode(Node):
 
             self.map_sub = self.create_subscription(
                 PoseStamped,
-                '/vrpn_mocap/bingda_003/pose',
+                f'/vrpn_mocap/bingda_{robot_number:03d}/pose',
                 self.optitrack_callback,
                 qos_profile
                 )
@@ -112,13 +160,22 @@ class WaypointNode(Node):
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10) # Publish to cmd_vel node
         self.timer = self.create_timer(0.05, self.timer_callback)  # Runs at 20Hz. Can be changed.
 
+        self.goal_list = goal_list
         self.map_array = map_array
         self.origin = origin # World (x, y) coordinate of the grid's [0, 0] corner. Use with grid_to_world()/world_to_grid()
-        self.resolution = resolution # Metres per grid cell for this run (0.2 sim, 0.1 real -- real maze is half scale). Use with grid_to_world()/world_to_grid()
+        self.resolution = resolution # Metres per grid cell (0.2). Use with grid_to_world()/world_to_grid()
+
+        self.frame = frame # Optitrack->maze frame (real robot only), see optitrack_to_maze()
+        self.expected_start = expected_start # Where this run says the robot should be placed (maze frame), real robot only
+        self.calibrate = calibrate # Real robot: only print poses, never publish cmd_vel
+        self.raw_pose = None # Latest pose exactly as Optitrack reported it (real robot only)
+        self._start_checked = False
+        self._calibrate_ticks = 0
 
         self.pose = None
         self.path = [] # Set this to your planned route (a list of grid-index tuples, in travel order) once you've computed it -- it'll automatically show up in the terminal map print
         self._last_printed_path = None
+
         self.nodes = {}
 
         self.integral_x = 0.0
@@ -128,9 +185,32 @@ class WaypointNode(Node):
 
         self.goal_list = goal_list
         self.current_goal_idx = 0
+        self.completed_paths = [] 
 
         self.wait_until = None
         self.direction = None
+
+    def _print_calibration(self):
+        '''--calibrate: twice a second, print the raw Optitrack pose next to the maze-frame pose and grid cell.'''
+        self._calibrate_ticks += 1
+        if self._calibrate_ticks % 10:
+            return
+        ox, oy, oh = self.raw_pose
+        mx, my, mh = self.pose
+        i, j = world_to_grid(mx, my, self.origin, self.resolution)
+        self.get_logger().info(f"optitrack ({ox:+.3f}, {oy:+.3f}, {oh:+7.1f} deg)  ->  maze ({mx:+.3f}, {my:+.3f}, {mh:+7.1f} deg)  cell [{i}, {j}]")
+
+    def _check_start_once(self):
+        '''Once, on the first pose: warn if the robot isn't near this run's start point (usually a placement or config mistake).'''
+        if self._start_checked or self.expected_start is None:
+            return
+        self._start_checked = True
+        dist = math.hypot(self.pose[0] - self.expected_start[0], self.pose[1] - self.expected_start[1])
+        msg = f"Robot is at maze ({self.pose[0]:.2f}, {self.pose[1]:.2f}); this run starts at {self.expected_start} -- {dist:.2f} m away"
+        if dist > 0.4:
+            self.get_logger().warn(msg + ". Check where the robot is placed; if it is on the start point, ask a TA.")
+        else:
+            self.get_logger().info(msg + " (ok)")
 
     def print_map(self):
         '''Prints the occupancy grid to the terminal: walls, your current position ('S'), all goal points ('W'/'G'),
@@ -156,6 +236,9 @@ class WaypointNode(Node):
         This callback will run everytime the rclpy executor spins'''
         x, y = msg.pose.position.x, msg.pose.position.y
         heading = np.rad2deg(self.yaw_from_quaternion(msg.pose.orientation))
+        self.raw_pose = np.array((x,y,heading))
+        if self.frame is not None:
+            x, y, heading = optitrack_to_maze(x, y, heading, self.frame) # Your code works in the maze frame, like in simulation
         self.pose = np.array((x,y,heading))
         return self.pose
 
@@ -178,20 +261,40 @@ class WaypointNode(Node):
         self.publisher_.publish(twist_msg)
 
 
-    def build_graph(self):
 
-        for i in range(self.map_array.shape[0]):
-            for j in range(self.map_array.shape[1]):
+    def obstacle_penalty(self, position):
+        i, j = position
 
-                if self.map_array[i, j] == 0:
-                    self.nodes[(i, j)] = GridNode((i, j))
+        min_dist = float('inf')
 
+        for di in range(-2, 3):
+            for dj in range(-2, 3):
 
-    def get_neighbors(self, node):
+                ni = i + di
+                nj = j + dj
 
-        i, j = node.position
-        neighbors = []
+                if (
+                    0 <= ni < self.map_array.shape[0]
+                    and 0 <= nj < self.map_array.shape[1]
+                ):
+                    if self.map_array[ni, nj] != 0:
+                        dist = max(abs(di), abs(dj))
+                        min_dist = min(min_dist, dist)
 
+        if min_dist <= 1:
+            return 1 # 3 in realworld
+
+        elif min_dist <= 2:
+            return 0.5 # 2 in realworld
+
+        return 0.0
+    
+
+    def a_star(self, start, goal):
+
+        turn_penalty = 3.0
+
+        # Four possible movement directions
         directions = [
             (-1, 0),
             (1, 0),
@@ -199,83 +302,87 @@ class WaypointNode(Node):
             (0, 1)
         ]
 
-        for di, dj in directions:
-
-            neighbor_pos = (i + di, j + dj)
-
-            if neighbor_pos in self.nodes:
-                neighbors.append(self.nodes[neighbor_pos])
-
-        return neighbors
-
-
-    def a_star(self, start, goal):
-
-        self.build_graph()
-
-        start_node = self.nodes.get(start)
-        start_node.g = 0
-        start_node.h = (
-            abs(start[0] - goal[0])
-            + abs(start[1] - goal[1])
-        )
-        start_node.f = start_node.g + start_node.h
+        # State = (position, incoming direction)
+        start_state = (start, None)
 
         frontier = []
-        heapq.heappush(
-            frontier,
-            (start_node.f, start_node.g, start_node.position, start_node)
-        )
+        heapq.heappush(frontier, (0, 0, start_state))
 
-        closed = set()
+        g_score = {start_state: 0}
+        parent = {start_state: None}
 
         while frontier:
 
-            _, _, _, current = heapq.heappop(frontier)
+            _, current_g, state = heapq.heappop(frontier)
 
-            if current.position in closed:
+            position, prev_direction = state
+
+            if current_g > g_score[state]:
                 continue
 
-            # Goal check
-            if current.position == goal:
+            # Goal reached
+            if position == goal:
 
                 path = []
 
-                while current is not None:
-                    path.append(current.position)
-                    current = current.parent
+                while state is not None:
+                    path.append(state[0])
+                    state = parent[state]
 
-                path.reverse()
-                return path
+                return path[::-1]
 
-            closed.add(current.position)
+            # Explore neighbors
+            for direction in directions:
 
-            # Expand current node's children
-            for neighbor in self.get_neighbors(current):
+                dx, dy = direction
 
-                if neighbor.position in closed:
+                neighbor = (
+                    position[0] + dx,
+                    position[1] + dy
+                )
+
+                # Check free cell
+                if (
+                    neighbor[0] < 0
+                    or neighbor[0] >= self.map_array.shape[0]
+                    or neighbor[1] < 0
+                    or neighbor[1] >= self.map_array.shape[1]
+                ):
                     continue
 
-                if current.g + 1 < neighbor.g:
+                if self.map_array[neighbor] != 0:
+                    continue
 
-                    neighbor.parent = current
-                    neighbor.g = current.g + 1
+                # Movement cost
+                cost = 1.0
 
-                    neighbor.h = (
-                        abs(neighbor.position[0] - goal[0])
-                        + abs(neighbor.position[1] - goal[1])
+                # Additional turning cost
+                if prev_direction is not None and direction != prev_direction:
+                    cost += turn_penalty
+
+                # Additional obstacle proximity cost (NEW)
+                cost += self.obstacle_penalty(neighbor)
+
+                new_g = current_g + cost
+
+                new_state = (neighbor, direction)
+
+                if new_g < g_score.get(new_state, float('inf')):
+
+                    g_score[new_state] = new_g
+                    parent[new_state] = state
+
+                    # Manhattan heuristic
+                    h = (
+                        abs(neighbor[0] - goal[0])
+                        + abs(neighbor[1] - goal[1])
                     )
 
-                    neighbor.f = neighbor.g + neighbor.h
+                    f = new_g + h
 
                     heapq.heappush(
                         frontier,
-                        (
-                            neighbor.f,
-                            neighbor.g,
-                            neighbor.position,
-                            neighbor
-                        )
+                        (f, new_g, new_state)
                     )
 
         return []
@@ -371,6 +478,10 @@ class WaypointNode(Node):
 
             self.path = self.simplify_path(raw_path)
 
+            # Save the complete path for logging
+            if self.path:
+                self.completed_paths.append(self.path.copy())
+
 
 
         # --------------------------------------------------
@@ -401,7 +512,7 @@ class WaypointNode(Node):
         # 4. CHECK IF TARGET WAYPOINT IS REACHED
         # --------------------------------------------------
 
-        if distance < 0.05:  # 5cm threshold
+        if distance < 0.03:  # realworld: 0.06
 
             self.path.pop(0)
 
@@ -428,137 +539,111 @@ class WaypointNode(Node):
                 if self.current_goal_idx >= len(self.goal_list):
                     self.move_2D(x=0.0, y=0.0)
                     self.get_logger().info("All goals reached")
+                    self.get_logger().info("===== ALL GOALS REACHED =====")
+
+                    for i, path in enumerate(self.completed_paths):
+                        self.get_logger().info(
+                            f"Goal {i + 1} complete planned path: {path}"
+                        )
 
             return
 
 
         # --------------------------------------------------
-        # 5. PID CONTROLLER (FORWARD/BACKWARD + TURNING)
+        # 5. CONTROLLER (CONSTANT TURN + DISTANCE PID)
         # --------------------------------------------------
 
         dt = 0.05
 
-        # Distance PID
-        Kp_x = 1.2
+        # PID gains
+        Kp_x = 1
         Ki_x = 0.05
         Kd_x = 0.1
 
-        # Heading PID
-        Kp_theta = 3.0
-        Ki_theta = 0.05
-        Kd_theta = 0.05
+        # Velocity limits
+        min_speed = 0.2
+        max_speed = 1.0
+        constant_omega = 2
+
+        theta_tolerance = np.deg2rad(2.5)  # 8 in realworld
 
         # --------------------------------------------------
-        # 5.1. CALCULATE TWO POSSIBLE HEADINGS
+        # 5.1. HEADING ERROR
         # --------------------------------------------------
 
         theta = np.deg2rad(self.pose[2])
-
         theta_target = np.arctan2(error_y, error_x)
 
+        # Normalize angle to [-pi, pi)
+        def wrap(angle):
+            return (angle + np.pi) % (2 * np.pi) - np.pi
+
         # Forward heading error
-        error_forward = np.arctan2(
-            np.sin(theta_target - theta),
-            np.cos(theta_target - theta)
-        )
+        error_forward = wrap(theta_target - theta)
 
-        # Backward heading error
-        error_backward = np.arctan2(
-            np.sin(theta_target + np.pi - theta),
-            np.cos(theta_target + np.pi - theta)
-        )
-
-        # Choose direction only once per waypoint
+        # Choose direction once per waypoint
         if self.direction is None:
-
-            if abs(error_forward) <= abs(error_backward):
+            if abs(error_forward) <= np.pi / 2:
                 self.direction = 1.0
             else:
                 self.direction = -1.0
 
-        # Use the selected direction
         direction = self.direction
 
-        if direction == 1.0:
-            error_theta = error_forward
-        else:
-            error_theta = error_backward
-
-        # --------------------------------------------------
-        # 5.2. DISTANCE PID
-        # --------------------------------------------------
-
-        error_distance = distance
-
-        self.integral_x += error_distance * dt
-
-        derivative_x = (
-            error_distance - self.prev_error_x
-        ) / dt
-
-        vx = (
-            Kp_x * error_distance
-            + Ki_x * self.integral_x
-            + Kd_x * derivative_x
+        # Final heading error
+        error_theta = wrap(
+            theta_target - theta + (np.pi if direction < 0 else 0)
         )
 
-        self.prev_error_x = error_distance
-
         # --------------------------------------------------
-        # 5.3. HEADING PID
+        # 5.2. TURN OR MOVE
         # --------------------------------------------------
-
-        self.integral_y += error_theta * dt
-
-        theta_difference = np.arctan2(
-            np.sin(error_theta - self.prev_error_y),
-            np.cos(error_theta - self.prev_error_y)
-        )
-
-        derivative_theta = theta_difference / dt
-
-        omega = (
-            Kp_theta * error_theta
-            + Ki_theta * self.integral_y
-            + Kd_theta * derivative_theta
-        )
-
-        self.prev_error_y = error_theta
-
-        # --------------------------------------------------
-        # 5.4. FORWARD / BACKWARD VELOCITY
-        # --------------------------------------------------
-
-        vx *= direction
-
-        # Slow down when heading error is large
-        vx *= max(0.0, np.cos(error_theta))
-
-        # Set speed boundaries
-        min_speed = 0.12
-        max_speed = 0.5
-
-        # Limit speed while preserving direction
-        vx = np.sign(vx) * np.clip(abs(vx), min_speed, max_speed)
-
-        # Angular velocity limits
-        min_omega = 0.5
-        max_omega = 1.8
-
-        # Heading error threshold
-        theta_tolerance = np.deg2rad(3)
 
         if abs(error_theta) > theta_tolerance:
-            omega = np.sign(error_theta) * np.clip(
-                abs(omega),
-                min_omega,
-                max_omega
-            )
+
+            # TURN IN PLACE
+            vx = 0.0
+            omega = np.sign(error_theta) * constant_omega
+
+            # Reset distance PID while turning
+            self.integral_x = 0.0
+            self.prev_error_x = None
+
         else:
+
+            # MOVE FORWARD / BACKWARD
             omega = 0.0
 
+            # Distance PID
+            self.integral_x += distance * dt
+            self.integral_x = np.clip(
+                self.integral_x, -0.5, 0.5
+            )
+
+            if self.prev_error_x is None:
+                derivative_x = 0.0
+            else:
+                derivative_x = (
+                    distance - self.prev_error_x
+                ) / dt
+
+            vx = (
+                Kp_x * distance
+                + Ki_x * self.integral_x
+                + Kd_x * derivative_x
+            )
+
+            self.prev_error_x = distance
+
+            # Apply direction and speed limits
+            vx = direction * np.clip(
+                max(0.0, vx),
+                min_speed,
+                max_speed
+            )
+
         # --------------------------------------------------
-        # 5.5. PUBLISH VELOCITY
+        # 5.3. LOGGING AND PUBLISHING
         # --------------------------------------------------
 
         self.get_logger().info(
@@ -573,20 +658,6 @@ class WaypointNode(Node):
         self.move_2D(x=vx, y=0.0, turn=omega)
         
 
-
-
-class GridNode:
-    def __init__(self, position):
-        self.position = position
-
-        # Graph connections
-        self.neighbors = []
-
-        # A* variables
-        self.parent = None
-        self.g = float('inf')
-        self.h = 0
-        self.f = float('inf')
 
 
 class Grid():
@@ -688,7 +759,7 @@ class Grid():
         base_width = 500
         wpercent = (base_width / float(img.size[0]))
         hsize = int((float(img.size[1]) * float(wpercent)))
-        img = img.resize((base_width, hsize), Image.Resampling.NEAREST)
+        img = img.resize((base_width, hsize), getattr(Image, "Resampling", Image).NEAREST)
 
         if save_path:
             img.save(save_path)
@@ -750,25 +821,51 @@ def main(args=None):
 
     arg_parser = argparse.ArgumentParser(description="RB2301 CA2 path planning")
     arg_parser.add_argument(
-        '--maze', type=int, choices=[0, 1], default=None,
-        help="Which real-life maze to run on (0 or 1), configured in optitrack_variables.config. Omit this flag to run in Gazebo simulation."
+        '--run', choices=IRL_RUNS, default=None,
+        help="Run on the real maze: test1, test2 or full (starts/goals in README). Omit to run in Gazebo simulation."
+    )
+    arg_parser.add_argument(
+        '--robot', type=int, default=None,
+        help="Number of your Bingda robot (3 -> /vrpn_mocap/bingda_003/pose). Default: your ROS_DOMAIN_ID (set to the robot number on the robots), else [robot] number in optitrack_variables.config."
+    )
+    arg_parser.add_argument(
+        '--calibrate', action='store_true',
+        help="Real robot: only print Optitrack and maze-frame poses (twice a second) and never publish cmd_vel. Use it to set origin/rotation."
     )
     cli_args, ros_args = arg_parser.parse_known_args(args=args)
-    is_simulation = cli_args.maze is None # Remember: pass --maze 0 or --maze 1 to ca2.sh when testing on the real lab setup
+    run = cli_args.run or ("test1" if cli_args.calibrate else None)
+    is_simulation = run is None # Remember: pass --run test1|test2|full to ca2.sh when testing on the real lab setup
 
     print("Starting path planning")
     rclpy.init(args=ros_args)
 
+    robot_number = 3
+    frame = expected_start = None
     if is_simulation:
         config = sim_config
     else:
-        config = load_irl_config(cli_args.maze)
-        print(f"Running on real maze {cli_args.maze}, origin={config['origin']}, resolution={config['resolution']}, goals={config['goal_list']}")
+        config = load_irl_config(run)
+        frame, expected_start = config["frame"], config["start"]
+        domain = os.environ.get("ROS_DOMAIN_ID", "")
+        if cli_args.robot is not None:
+            robot_number = cli_args.robot
+        elif domain.isdigit() and 1 <= int(domain) <= 99: # on the Bingda robots ROS_DOMAIN_ID is the robot number
+            robot_number = int(domain)
+        else:
+            robot_number = config["robot_number"]
+        frame = robot_frame(config, robot_number)
+        expected_start = config["start"]
+        print(f"Running on the real maze, run={run}, robot=bingda_{robot_number:03d}, resolution={config['resolution']}")
+        print(f"  maze origin in Optitrack frame = ({frame['origin_x']}, {frame['origin_y']}), rotation = {frame['rotation_deg']} deg, robot heading offset = {frame['heading_offset_deg']} deg")
+        print(f"  start={expected_start}, goals={config['goal_list']}")
+        if cli_args.calibrate:
+            print("  CALIBRATE MODE: printing poses only, the robot will not be commanded")
 
     max_translate_velocity = config["max_translate_velocity"]
 
     map_array = np.load(os.path.join(_PACKAGE_DIR, config["map_file"]), allow_pickle=True)
-    waypoint = WaypointNode(map_array, config["goal_list"], is_simulation, config["origin"], config["resolution"])
+    waypoint = WaypointNode(map_array, config["goal_list"], is_simulation, config["origin"], config["resolution"],
+                            frame=frame, robot_number=robot_number, expected_start=expected_start, calibrate=cli_args.calibrate)
 
     # Start spinning the waypoint node and only stop once SystemExit error is raised within the node callback
     try:

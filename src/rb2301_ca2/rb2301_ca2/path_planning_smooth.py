@@ -178,36 +178,33 @@ class WaypointNode(Node):
         self.publisher_.publish(twist_msg)
 
 
-    # def build_graph(self):
+    def obstacle_penalty(self, position):
+        i, j = position
 
-    #     for i in range(self.map_array.shape[0]):
-    #         for j in range(self.map_array.shape[1]):
+        min_dist = float('inf')
 
-    #             if self.map_array[i, j] == 0:
-    #                 self.nodes[(i, j)] = GridNode((i, j))
+        for di in range(-2, 3):
+            for dj in range(-2, 3):
 
+                ni = i + di
+                nj = j + dj
 
-    # def get_neighbors(self, node):
+                if (
+                    0 <= ni < self.map_array.shape[0]
+                    and 0 <= nj < self.map_array.shape[1]
+                ):
+                    if self.map_array[ni, nj] != 0:
+                        dist = max(abs(di), abs(dj))
+                        min_dist = min(min_dist, dist)
 
-    #     i, j = node.position
-    #     neighbors = []
+        if min_dist <= 1:
+            return 1 # 3 in realworld
 
-    #     directions = [
-    #         (-1, 0),
-    #         (1, 0),
-    #         (0, -1),
-    #         (0, 1)
-    #     ]
+        elif min_dist <= 2:
+            return 0.5 # 2 in realworld
 
-    #     for di, dj in directions:
-
-    #         neighbor_pos = (i + di, j + dj)
-
-    #         if neighbor_pos in self.nodes:
-    #             neighbors.append(self.nodes[neighbor_pos])
-
-    #     return neighbors
-
+        return 0.0
+    
 
     def a_star(self, start, goal):
 
@@ -279,6 +276,9 @@ class WaypointNode(Node):
                 if prev_direction is not None and direction != prev_direction:
                     cost += turn_penalty
 
+                # Additional obstacle proximity cost (NEW)
+                cost += self.obstacle_penalty(neighbor)
+
                 new_g = current_g + cost
 
                 new_state = (neighbor, direction)
@@ -302,6 +302,7 @@ class WaypointNode(Node):
                     )
 
         return []
+
 
 
     def simplify_path(self, path):
@@ -424,7 +425,7 @@ class WaypointNode(Node):
         # 4. CHECK IF TARGET WAYPOINT IS REACHED
         # --------------------------------------------------
 
-        if distance < 0.01:  # 5cm threshold
+        if distance < 0.06:  # 6cm threshold
 
             self.path.pop(0)
 
@@ -456,100 +457,132 @@ class WaypointNode(Node):
 
 
         # --------------------------------------------------
-        # 5. CONTROLLER (CONSTANT TURN + DISTANCE PID)
+        # 5. PID CONTROLLER (FORWARD/BACKWARD + TURNING)
         # --------------------------------------------------
 
         dt = 0.05
 
-        # PID gains
+        # Distance PID
         Kp_x = 1
-        Ki_x = 0.1
+        Ki_x = 0.05
         Kd_x = 0.1
 
-        # Velocity limits
-        min_speed = 0.2
-        max_speed = 1.0
-        constant_omega = 1.5
-
-        theta_tolerance = np.deg2rad(1.5)
+        # Heading PID
+        Kp_theta = 3.0
+        Ki_theta = 0.05
+        Kd_theta = 0.05
 
         # --------------------------------------------------
-        # 5.1. HEADING ERROR
+        # 5.1. CALCULATE TWO POSSIBLE HEADINGS
         # --------------------------------------------------
 
         theta = np.deg2rad(self.pose[2])
+
         theta_target = np.arctan2(error_y, error_x)
 
-        # Normalize angle to [-pi, pi)
-        def wrap(angle):
-            return (angle + np.pi) % (2 * np.pi) - np.pi
-
         # Forward heading error
-        error_forward = wrap(theta_target - theta)
+        error_forward = np.arctan2(
+            np.sin(theta_target - theta),
+            np.cos(theta_target - theta)
+        )
 
-        # Choose direction once per waypoint
+        # Backward heading error
+        error_backward = np.arctan2(
+            np.sin(theta_target + np.pi - theta),
+            np.cos(theta_target + np.pi - theta)
+        )
+
+        # Choose direction only once per waypoint
         if self.direction is None:
-            if abs(error_forward) <= np.pi / 2:
+
+            if abs(error_forward) <= abs(error_backward):
                 self.direction = 1.0
             else:
                 self.direction = -1.0
 
+        # Use the selected direction
         direction = self.direction
 
-        # Final heading error
-        error_theta = wrap(
-            theta_target - theta + (np.pi if direction < 0 else 0)
+        if direction == 1.0:
+            error_theta = error_forward
+        else:
+            error_theta = error_backward
+
+        # --------------------------------------------------
+        # 5.2. DISTANCE PID
+        # --------------------------------------------------
+
+        error_distance = distance
+
+        self.integral_x += error_distance * dt
+
+        derivative_x = (
+            error_distance - self.prev_error_x
+        ) / dt
+
+        vx = (
+            Kp_x * error_distance
+            + Ki_x * self.integral_x
+            + Kd_x * derivative_x
         )
 
+        self.prev_error_x = error_distance
+
         # --------------------------------------------------
-        # 5.2. TURN OR MOVE
+        # 5.3. HEADING PID
         # --------------------------------------------------
+
+        self.integral_y += error_theta * dt
+
+        theta_difference = np.arctan2(
+            np.sin(error_theta - self.prev_error_y),
+            np.cos(error_theta - self.prev_error_y)
+        )
+
+        derivative_theta = theta_difference / dt
+
+        omega = (
+            Kp_theta * error_theta
+            + Ki_theta * self.integral_y
+            + Kd_theta * derivative_theta
+        )
+
+        self.prev_error_y = error_theta
+
+        # --------------------------------------------------
+        # 5.4. FORWARD / BACKWARD VELOCITY
+        # --------------------------------------------------
+
+        vx *= direction
+
+        # Slow down when heading error is large
+        vx *= max(0.0, np.cos(error_theta))
+
+        # Set speed boundaries
+        min_speed = 0.12
+        max_speed = 0.5
+
+        # Limit speed while preserving direction
+        vx = np.sign(vx) * np.clip(abs(vx), min_speed, max_speed)
+
+        # Angular velocity limits
+        min_omega = 0.5
+        max_omega = 1.8
+
+        # Heading error threshold
+        theta_tolerance = np.deg2rad(3)
 
         if abs(error_theta) > theta_tolerance:
-
-            # TURN IN PLACE
-            vx = 0.0
-            omega = np.sign(error_theta) * constant_omega
-
-            # Reset distance PID while turning
-            self.integral_x = 0.0
-            self.prev_error_x = None
-
+            omega = np.sign(error_theta) * np.clip(
+                abs(omega),
+                min_omega,
+                max_omega
+            )
         else:
-
-            # MOVE FORWARD / BACKWARD
             omega = 0.0
 
-            # Distance PID
-            self.integral_x += distance * dt
-            self.integral_x = np.clip(
-                self.integral_x, -0.5, 0.5
-            )
-
-            if self.prev_error_x is None:
-                derivative_x = 0.0
-            else:
-                derivative_x = (
-                    distance - self.prev_error_x
-                ) / dt
-
-            vx = (
-                Kp_x * distance
-                + Ki_x * self.integral_x
-                + Kd_x * derivative_x
-            )
-
-            self.prev_error_x = distance
-
-            # Apply direction and speed limits
-            vx = direction * np.clip(
-                max(0.0, vx),
-                min_speed,
-                max_speed
-            )
-
         # --------------------------------------------------
-        # 5.3. LOGGING AND PUBLISHING
+        # 5.5. PUBLISH VELOCITY
         # --------------------------------------------------
 
         self.get_logger().info(
@@ -563,22 +596,6 @@ class WaypointNode(Node):
 
         self.move_2D(x=vx, y=0.0, turn=omega)
         
-
-
-
-# class GridNode:
-#     def __init__(self, position):
-#         self.position = position
-
-#         # Graph connections
-#         self.neighbors = []
-
-#         # A* variables
-#         self.parent = None
-#         self.g = float('inf')
-#         self.h = 0
-#         self.f = float('inf')
-
 
 class Grid():
     '''
