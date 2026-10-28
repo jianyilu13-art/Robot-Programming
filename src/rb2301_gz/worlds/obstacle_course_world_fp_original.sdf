@@ -1,0 +1,271 @@
+<sdf version="1.6">
+  <world name="empty">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+    <plugin name="gz::sim::systems::Physics" filename="gz-sim-physics-system" />
+    <plugin name="gz::sim::systems::UserCommands" filename="gz-sim-user-commands-system" />
+    <plugin name="gz::sim::systems::SceneBroadcaster" filename="gz-sim-scene-broadcaster-system" />
+    <plugin name="gz::sim::systems::Contact" filename="gz-sim-contact-system" />
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <gravity>0 0 -9.81</gravity>
+    <magnetic_field>5.5644999999999998e-06 2.2875799999999999e-05 -4.2388400000000002e-05</magnetic_field>
+    <atmosphere type="adiabatic" />
+
+    <scene>
+      <ambient>0.400000006 0.400000006 0.400000006 1</ambient>
+      <background>0.699999988 0.699999988 0.699999988 1</background>
+      <shadows>true</shadows>
+    </scene>
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode />
+            </friction>
+            <bounce />
+            <contact />
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.800000012 0.800000012 0.800000012 1</ambient>
+            <diffuse>0.800000012 0.800000012 0.800000012 1</diffuse>
+            <specular>0.800000012 0.800000012 0.800000012 1</specular>
+          </material>
+        </visual>
+        <pose>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+        <enable_wind>false</enable_wind>
+      </link>
+      <pose>0 0 0 0 0 0</pose>
+      <self_collide>false</self_collide>
+    </model>
+
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_1</name>
+      <pose>0 0 -0.7 0 0 0</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_2</name>
+      <pose>0 -1.2 -0.7 0 0 0</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_3</name>
+      <pose>0 0 -0.7 0 0 1.57079633</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_4</name>
+      <pose>1.2 0 -0.7 0 0 0</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_5</name>
+      <pose>1.2 -1.2 -0.7 0 0 0</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_6</name>
+      <pose>2.4 0 -0.7 0 0 0</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_7</name>
+      <pose>2.4 -1.2 -0.7 0 0 1.57079633</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_8</name>
+      <pose>3.6 0 -0.7 0 0 1.57079633</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_9</name>
+      <pose>2.4 -2.4 -0.7 0 0 1.57079633</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_10</name>
+      <pose>3.6 -1.2 -0.7 0 0 1.57079633</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_11</name>
+      <pose>2.4 -2.8 -0.7 0 0 1.57079633</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_12</name>
+      <pose>3.6 -2.4 -0.7 0 0 0</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_13</name>
+      <pose>2.4 -4.0 -0.7 0 0 0</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_14</name>
+      <pose>3.6 -4.0 -0.7 0 0 0</pose>
+    </include>
+
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_15</name>
+      <pose>4.8 -2.4 -0.7 0 0 0</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_16</name>
+      <pose>4.8 -4.0 -0.7 0 0 0</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_17</name>
+      <pose>6 -2.4 -0.7 0 0 1.57079633</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_18</name>
+      <pose>6 -2.8 -0.7 0 0 1.57079633</pose>
+    </include>
+
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_configurable_left</name>
+      <pose>4.2 -1.4567267699137467 -0.7 0 0 1.57079633</pose>
+    </include>
+    <include>
+      <uri>package://rb2301_gz/meshes/nist maze wall 120/3</uri>
+      <name>nist_maze_wall_120_configurable_right</name>
+      <pose>4.2 -3.056726769913747 -0.7 0 0 1.57079633</pose>
+    </include>
+
+    <actor name="obstacle_1">
+      <link name="obstacle_link_1">
+        <visual name="obstacle_visual_1">
+          <geometry>
+            <box>
+            <size>0.05 0.3 0.3</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+            <specular>1 0 0 1</specular>
+          </material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <delay_start>0.0</delay_start>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="square">
+        <waypoint>
+          <time>0.0</time>
+          <pose>4.2 -2.0 0.15 0 0 0</pose>
+        </waypoint>
+        <waypoint>
+          <time>4.0</time>
+          <pose>4.2 -3.2 0.15 0 0 0</pose>
+        </waypoint>
+        <waypoint>
+          <time>8.0</time>
+          <pose>4.2 -2.0 0.15 0 0 0</pose>
+        </waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <actor name="obstacle_2">
+      <link name="obstacle_link_2">
+        <visual name="obstacle_visual_2">
+          <geometry>
+            <box>
+            <size>0.05 0.3 0.3</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0 0 1 1</ambient>
+            <diffuse>0 0 1 1</diffuse>
+            <specular>0 0 1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <script>
+        <loop>true</loop>
+        <delay_start>0.0</delay_start>
+        <auto_start>true</auto_start>
+        <trajectory id="1" type="square">
+        <waypoint>
+          <time>0.0</time>
+          <pose>4.8 -2.0 0.15 0 0 0</pose>
+        </waypoint>
+        <waypoint>
+          <time>2.5</time>
+          <pose>4.8 -3.2 0.15 0 0 0</pose>
+        </waypoint>
+        <waypoint>
+          <time>5.0</time>
+          <pose>4.8 -2.0 0.15 0 0 0</pose>
+        </waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    <light name="sun" type="directional">
+      <pose>0 0 10 0 0 0</pose>
+      <cast_shadows>false</cast_shadows>
+      <intensity>1</intensity>
+      <direction>-0.5 0.10000000000000001 -0.90000000000000002</direction>
+      <diffuse>0.800000012 0.800000012 0.800000012 1</diffuse>
+      <specular>0.200000003 0.200000003 0.200000003 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <linear>0.01</linear>
+        <constant>0.90000000000000002</constant>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <spot>
+        <inner_angle>0</inner_angle>
+        <outer_angle>0</outer_angle>
+        <falloff>0</falloff>
+      </spot>
+    </light>
+
+  </world>
+</sdf>

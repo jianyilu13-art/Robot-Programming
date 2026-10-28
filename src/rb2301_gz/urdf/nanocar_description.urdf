@@ -356,55 +356,6 @@
     <child link="imu_link" />
     <axis xyz="0 0 0" />
   </joint>
-
-
-  <gazebo reference="base_link">
-    <material>Gazebo/DarkGrey</material>
-  </gazebo>
-
-  <gazebo reference="front_left_wheel_link">
-    <mu1>1.0</mu1>
-    <mu2>0.0</mu2>
-    <kp>500000.0</kp>
-    <kd>10.0</kd>
-    <minDepth>0.001</minDepth>
-    <maxVel>1.0</maxVel>
-    <fdir1>1 0 0</fdir1>
-    <material>Gazebo/FlatBlack</material>
-  </gazebo>
-
-  <gazebo reference="front_right_wheel_link">
-    <mu1>1.0</mu1>
-    <mu2>0.0</mu2>
-    <kp>500000.0</kp>
-    <kd>10.0</kd>
-    <minDepth>0.001</minDepth>
-    <maxVel>1.0</maxVel>
-    <fdir1>1 0 0</fdir1>
-    <material>Gazebo/FlatBlack</material>
-  </gazebo>
-
-  <gazebo reference="back_left_wheel_link">
-    <mu1>1.0</mu1>
-    <mu2>0.0</mu2>
-    <kp>500000.0</kp>
-    <kd>10.0</kd>
-    <minDepth>0.001</minDepth>
-    <maxVel>1.0</maxVel>
-    <fdir1>1 0 0</fdir1>
-    <material>Gazebo/FlatBlack</material>
-  </gazebo>
-
-  <gazebo reference="back_right_wheel_link">
-    <mu1>1.0</mu1>
-    <mu2>0.0</mu2>
-    <kp>500000.0</kp>
-    <kd>10.0</kd>
-    <minDepth>0.001</minDepth>
-    <maxVel>1.0</maxVel>
-    <fdir1>1 0 0</fdir1>
-    <material>Gazebo/FlatBlack</material>
-  </gazebo>
   
   <gazebo reference="imu_link">
     <sensor name="imu" type="imu">
