@@ -108,24 +108,42 @@ class ObstacleCourseNode(Node):
 
         self.pose = None
 
-        # Navigation target (temporary; adjust according to map)
-        self.target = np.array([2.0, -1.0])
-
-        # Navigation parameters
-        self.goal_tolerance = 0.15
-        self.forward_speed = 0.25
-
-        # Obstacle avoidance parameters
-        self.safe_distance = 0.8
-        self.avoidance_gain = 0.1
-
-        # Escape mode
-        self.in_escape_mode = False
-        self.preferred_direction = -1.0
-
-        # LiDAR initialization
+        # CA1 obstacle avoidance parameters
         self.last_scan = None
 
+        self.safe_distance = 1.0
+        self.avoidance_gain = 0.1
+
+        self.forward_velocity = 0.3
+
+        # Escape mode
+        self.preferred_direction = -1.0
+        self.in_escape_mode = False
+
+        # Lateral displacement correction
+        self.side_displacement = 0.0
+
+        self.stage = 0
+
+        self.stage_names = [
+            "FORWARD_X_1",
+            "MOVE_Y",
+            "FORWARD_X_2",
+            "FINISHED"
+        ]
+
+        self.escape_direction_x = -1.0
+        self.escape_direction_y = -1.0
+
+        # Separate displacement correction for each axis
+        self.x_displacement = 0.0
+        self.y_displacement = 0.0
+
+        self.state1_end_x = 1.7
+        self.state2_end_x = 3.0
+        self.state3_end_x = 5.7
+
+        self.state2_end_y = -2.5
 
     def sub_scan_callback(self, msg):
         """Scan subscriber"""
@@ -203,138 +221,343 @@ class ObstacleCourseNode(Node):
 
             angle_deg = np.degrees(angle)
 
-            if angle_deg < 10.0 or angle_deg >= 350.0:
-                direction_weight = 2.0
+            # Original CA1 directional weights
+            if angle_deg < 1.0 or angle_deg >= 359.0:
+                direction_weight = 1.0
 
-            elif 80.0 <= angle_deg <= 100.0:
-                direction_weight = 2.0
+            elif 89.0 <= angle_deg <= 91.0:
+                direction_weight = 1.0
 
-            elif 260.0 <= angle_deg <= 280.0:
-                direction_weight = 2.0
+            elif 269.0 <= angle_deg <= 271.0:
+                direction_weight = 1.0
+
+            elif 179.0 <= angle_deg <= 181.0:
+                direction_weight = 1.0
 
             else:
-                direction_weight = 1.0
+                direction_weight = 0.01
 
             strength = (
                 self.avoidance_gain
                 * direction_weight
-                * (1.0 / distance - 1.0 / self.safe_distance)
+                * (1.0 / distance - 1.0 / self.safe_distance) ** 2
             )
 
             vx -= 0.5 * strength * np.cos(angle)
-            vy -= 0.5 * strength * np.sin(angle)
+            vy -= 0.1 * strength * np.sin(angle)
+
+            # Ignore lateral movement when left/right repulsion is balanced
+            if abs(vy) < 0.05:
+                vy = 0.0
 
         return vx, vy
 
+    def ca1_x(self, avoid_x, avoid_y):
+
+        forward_velocity = 0.3
+        forward_result = forward_velocity + avoid_x
+
+        correction_gain = 0.5
+
+        if abs(self.y_displacement) < 0.03:
+            correction_factor = 0.0
+        else:
+            correction_factor = -correction_gain * self.y_displacement
+
+        enter_escape_threshold = 0.05
+        exit_escape_threshold = 0.15
+
+        # ==========================================
+        # ESCAPE MODE
+        # ==========================================
+
+        if self.in_escape_mode:
+
+            if forward_result > exit_escape_threshold:
+
+                self.in_escape_mode = False
+
+                x = forward_result
+                y = avoid_y + correction_factor
+
+            else:
+
+                if abs(avoid_y) < 0.20:
+
+                    x = 0.0
+                    y = 0.15 * self.escape_direction_x
+
+                else:
+
+                    x = 0.0
+                    y = avoid_y
+                    self.in_escape_mode = False
+
+        # ==========================================
+        # NORMAL MODE
+        # ==========================================
+
+        else:
+
+            if forward_result < enter_escape_threshold:
+
+                self.in_escape_mode = True
+
+                if avoid_y > 0.1:
+                    self.escape_direction_x = 1.0
+
+                elif avoid_y < -0.1:
+                    self.escape_direction_x = -1.0
+
+                else:
+                    self.escape_direction_x *= -1.0
+
+                x = 0.0
+                y = 0.15 * self.escape_direction_x
+
+            else:
+
+                x = forward_result
+
+                if abs(avoid_y) > 0.02:
+                    y = avoid_y
+                else:
+                    y = avoid_y + correction_factor
+
+        # ==========================================
+        # VELOCITY LIMITS
+        # ==========================================
+
+        x = np.clip(
+            x,
+            0.0,
+            self.max_translate_velocity
+        )
+
+        y = np.clip(
+            y,
+            -0.15,
+            0.15
+        )
+
+        self.y_displacement += y * 0.05
+
+        return x, y
+
+    def ca1_y(self, avoid_x, avoid_y):
+
+        forward_velocity = 0.3
+
+        # Primary direction is negative Y
+        forward_result = forward_velocity - avoid_y
+
+        correction_gain = 0.5
+
+        if abs(self.x_displacement) < 0.03:
+            correction_factor = 0.0
+        else:
+            correction_factor = -correction_gain * self.x_displacement
+
+        enter_escape_threshold = 0.05
+        exit_escape_threshold = 0.15
+
+        # ==========================================
+        # ESCAPE MODE
+        # ==========================================
+
+        if self.in_escape_mode:
+
+            if forward_result > exit_escape_threshold:
+
+                self.in_escape_mode = False
+
+                y = -forward_result
+                x = avoid_x + correction_factor
+
+            else:
+
+                if abs(avoid_x) < 0.20:
+
+                    y = 0.0
+                    x = 0.15 * self.escape_direction_y
+
+                else:
+
+                    y = 0.0
+                    x = avoid_x
+                    self.in_escape_mode = False
+
+        # ==========================================
+        # NORMAL MODE
+        # ==========================================
+
+        else:
+
+            if forward_result < enter_escape_threshold:
+
+                self.in_escape_mode = True
+
+                if avoid_x > 0.1:
+                    self.escape_direction_y = 1.0
+
+                elif avoid_x < -0.1:
+                    self.escape_direction_y = -1.0
+
+                else:
+                    self.escape_direction_y *= -1.0
+
+                y = 0.0
+                x = 0.15 * self.escape_direction_y
+
+            else:
+
+                y = -forward_result
+
+                if abs(avoid_x) > 0.02:
+                    x = avoid_x
+                else:
+                    x = avoid_x + correction_factor
+
+        # ==========================================
+        # VELOCITY LIMITS
+        # ==========================================
+
+        x = np.clip(
+            x,
+            -0.15,
+            0.15
+        )
+
+        y = np.clip(
+            y,
+            -self.max_translate_velocity,
+            0.0
+        )
+
+        self.x_displacement += x * 0.05
+
+        return x, y
+
     def timer_callback(self):
-        """Controller loop. Insert path planning and PID control logic here"""
+        """Three-stage navigation: +X -> -Y -> +X"""
+
         if self.pose is None:
             print("No pose detected")
-            return # Does not run if no pose received from Odom or Optitrack
+            return
 
-        if self.calibrate and self.raw_pose is not None:
-            self._ticks += 1
-            if self._ticks % 10 == 0: # twice a second
-                ox, oy, oh = self.raw_pose
-                self.get_logger().info(f"optitrack ({ox:+.3f}, {oy:+.3f}, {oh:+7.1f} deg)  ->  maze ({self.pose[0]:+.3f}, {self.pose[1]:+.3f}, {self.pose[2]:+7.1f} deg)")
-            return # Calibration mode: look, don't drive
-
-        ###### INSERT CODE HERE ######
+        if self.calibrate:
+            if self.raw_pose is not None:
+                self._ticks += 1
+                if self._ticks % 10 == 0:
+                    ox, oy, oh = self.raw_pose
+                    self.get_logger().info(
+                        f"optitrack ({ox:+.3f}, {oy:+.3f}, {oh:+7.1f} deg)"
+                    )
+            return
 
         if self.last_scan is None:
             self.move_2D(0.0, 0.0, 0.0)
             return
 
         # ==========================================
-        # 1. GET CURRENT POSE
+        # 1. CURRENT POSE
         # ==========================================
 
-        x, y, heading_deg = self.pose
+        px, py, heading = self.pose
 
         # ==========================================
-        # 2. CALCULATE GOAL DIRECTION
+        # 2. STATE MACHINE
         # ==========================================
 
-        dx = self.target[0] - x
-        dy = self.target[1] - y
+        previous_stage = self.stage
 
-        distance = np.hypot(dx, dy)
+        # Stage 0: +X
+        if self.stage == 0 and px >= self.state1_end_x:
+            self.stage = 1
 
-        if distance < self.goal_tolerance:
+        # Stage 1: -Y
+        elif self.stage == 1 and py <= self.state2_end_y:
+            self.stage = 2
+
+        # Stage 2: +X
+        elif self.stage == 2 and px >= self.state3_end_x:
+            self.stage = 3
+
+        # ==========================================
+        # 3. STATE TRANSITION
+        # ==========================================
+
+        if self.stage != previous_stage:
+
+            self.in_escape_mode = False
+
+            self.x_displacement = 0.0
+            self.y_displacement = 0.0
+
+            self.get_logger().info(
+                f"STATE TRANSITION: "
+                f"{self.stage_names[previous_stage]} "
+                f"-> {self.stage_names[self.stage]}"
+            )
+
+        # ==========================================
+        # 4. FINISHED
+        # ==========================================
+
+        if self.stage == 3:
             self.move_2D(0.0, 0.0, 0.0)
             return
 
-        # Convert world-frame direction to robot frame
-        heading = np.deg2rad(heading_deg)
-
-        local_x = np.cos(heading) * dx + np.sin(heading) * dy
-        local_y = -np.sin(heading) * dx + np.cos(heading) * dy
-
-        goal_vx = self.forward_speed * local_x / distance
-        goal_vy = self.forward_speed * local_y / distance
-
         # ==========================================
-        # 3. OBSTACLE AVOIDANCE
+        # 5. OBSTACLE AVOIDANCE
         # ==========================================
 
         avoid_x, avoid_y = self.get_avoidance_velocity()
 
-        vx = goal_vx + avoid_x
-        vy = goal_vy + avoid_y
-
         # ==========================================
-        # 4. ESCAPE MODE
+        # 6. SELECT CONTROLLER
         # ==========================================
 
-        enter_escape_threshold = 0.05
-        exit_escape_threshold = 0.15
+        if self.stage == 0:
 
-        # Escape only when the goal is generally ahead
-        goal_ahead = goal_vx > 0.05
+            # Stage 1: Move +X
+            x, y = self.ca1_x(avoid_x, avoid_y)
 
-        if self.in_escape_mode:
+        elif self.stage == 1:
 
-            if vx > exit_escape_threshold:
-                self.in_escape_mode = False
+            # Stage 2: Move -Y
+            x, y = self.ca1_y(avoid_x, avoid_y)
 
-            else:
-                vx = 0.0
-                vy = 0.15 * self.preferred_direction
+        elif self.stage == 2:
 
-        elif goal_ahead and vx < enter_escape_threshold:
-
-            self.in_escape_mode = True
-
-            if avoid_y > 0.1:
-                self.preferred_direction = 1.0
-
-            elif avoid_y < -0.1:
-                self.preferred_direction = -1.0
-
-            else:
-                self.preferred_direction *= -1.0
-
-            vx = 0.0
-            vy = 0.15 * self.preferred_direction
+            # Stage 3: Move +X
+            x, y = self.ca1_x(avoid_x, avoid_y)
 
         # ==========================================
-        # 5. VELOCITY LIMITS
+        # 7. DEBUG
         # ==========================================
 
-        vx = np.clip(vx, -self.forward_speed, self.forward_speed)
-        vy = np.clip(vy, -self.forward_speed, self.forward_speed)
+        self._ticks += 1
+
+        if self._ticks % 10 == 0:
+            self.get_logger().info(
+                f"State: {self.stage_names[self.stage]} | "
+                f"Mode: {'ESCAPE' if self.in_escape_mode else 'NORMAL'} | "
+                f"Pose: ({px:.2f}, {py:.2f}, {heading:.1f}) | "
+                f"Avoid: ({avoid_x:.3f}, {avoid_y:.3f}) | "
+                f"Velocity: ({x:.3f}, {y:.3f})"
+            )
 
         # ==========================================
-        # 6. EXECUTE MOTION
+        # 8. MOVE
         # ==========================================
 
         self.move_2D(
-            x=vx,
-            y=vy,
+            x=x,
+            y=y,
             turn=0.0
         )
 
-        ###### INSERT CODE HERE ######
                 
 
 def main(args=None):
