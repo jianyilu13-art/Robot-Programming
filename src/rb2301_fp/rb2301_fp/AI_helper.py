@@ -270,7 +270,7 @@ class ObstacleCourseNode(Node):
         twist_msg.angular.x, twist_msg.angular.y, twist_msg.angular.z = 0.0, 0.0, float(turn)
         self.publisher_.publish(twist_msg)
 
- # ==========================================
+    # ==========================================
     # HARMONIC POTENTIAL FIELD HELPERS
     # ==========================================
 

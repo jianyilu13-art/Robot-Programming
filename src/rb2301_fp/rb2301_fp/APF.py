@@ -113,36 +113,22 @@ class ObstacleCourseNode(Node):
         # ==========================================
         self.navigation_stage = 0
         self.state1_end_x = 1.7
-        self.state2_end_y = -2.5
+        self.state2_end_y = -2.3
         self.state3_end_x = 5.7
 
         self.k_att = 3.0
-        self.k_rep = 0.015
+        self.k_rep = 0.15
 
         self.obstacle_influence_distance = 0.65
-        self.minimum_distance = 0.08
+        self.minimum_distance = 0.1
 
-        self.lateral_deadband = 0.02
+        self.lateral_deadband = 0
 
         self.forward_velocity_limit = 0.30
         self.lateral_velocity_limit = 0.20
 
         self.forward_velocity_limit = 0.18
         self.lateral_velocity_limit = 0.14
-
-        # The supplied laser joint is mounted pi radians from base_link.
-        self.lidar_yaw_offset = np.pi
-        self.apf_ranges = None
-        self.apf_angles = None
-        self.apf_angle_increment = None
-        self.apf_range_min = 0.0
-        self.apf_range_max = float("inf")
-        self.apf_debug_ticks = 0
-        self.stage_entry_pose = None
-
-        self.apf_scan_sub = self.create_subscription(
-            LaserScan, "scan", self.apf_scan_callback, 2
-        )
 
     def sub_scan_callback(self, msg):
         """Scan subscriber"""
@@ -194,19 +180,6 @@ class ObstacleCourseNode(Node):
     # ARTIFICIAL POTENTIAL FIELD HELPERS
     # ==========================================
 
-    def apf_scan_callback(self, msg):
-        """Store ranges and metadata-derived angles in the robot frame."""
-        self.apf_ranges = np.asarray(msg.ranges, dtype=float)
-        self.apf_angle_increment = float(msg.angle_increment)
-        self.apf_angles = (
-            float(msg.angle_min)
-            + np.arange(len(self.apf_ranges), dtype=float)
-            * self.apf_angle_increment
-            + self.lidar_yaw_offset
-        )
-        self.apf_range_min = float(msg.range_min)
-        self.apf_range_max = float(msg.range_max)
-
     def update_navigation_stage(self, x, y):
         """Advance the three-stage route using global course-frame pose."""
         next_stage = self.navigation_stage
@@ -228,50 +201,66 @@ class ObstacleCourseNode(Node):
             )
 
     def get_avoidance_velocity(self, heading_deg):
-        """Return the global negative gradient of the repulsive potential."""
-        if self.apf_ranges is None or self.apf_angles is None:
+
+        if self.last_scan is None:
             return 0.0, 0.0
 
-        valid = (
-            np.isfinite(self.apf_ranges)
-            & (self.apf_ranges > 0.0)
-            & (self.apf_ranges < self.obstacle_influence_distance)
-            & (self.apf_ranges <= self.apf_range_max)
+        scan = np.asarray(self.last_scan, dtype=float)
+
+        n = len(scan)
+
+        # Official scan convention:
+        # 0 = front, 90 = left, 180 = back, 270 = right
+        angles = np.linspace(
+            0.0,
+            2.0 * np.pi,
+            n,
+            endpoint=False
         )
+
+        valid = (
+            np.isfinite(scan)
+            & (scan > 0.0)
+            & (scan < self.obstacle_influence_distance)
+        )
+
         if not np.any(valid):
             return 0.0, 0.0
 
         distances = np.maximum(
-            self.apf_ranges[valid], self.minimum_distance
+            scan[valid],
+            self.minimum_distance
         )
-        angles = self.apf_angles[valid]
 
-        # This is -grad(U_rep), not the potential value itself.
+        angles = angles[valid]
+
         magnitudes = self.k_rep * (
-            1.0 / distances - 1.0 / self.obstacle_influence_distance
+            1.0 / distances
+            - 1.0 / self.obstacle_influence_distance
         ) / (distances * distances)
 
-        # Angular integration makes the result independent of beam count.
-        angular_weight = abs(self.apf_angle_increment)
-        if angular_weight <= 0.0:
-            angular_weight = 2.0 * np.pi / max(1, len(self.apf_ranges))
+        angular_weight = 2.0 * np.pi / n
 
         force_robot_x = float(np.sum(
             -magnitudes * np.cos(angles) * angular_weight
         ))
+
         force_robot_y = float(np.sum(
             -magnitudes * np.sin(angles) * angular_weight
         ))
 
-        yaw = math.radians(heading_deg)
+        yaw = np.deg2rad(heading_deg)
+
         force_global_x = (
-            math.cos(yaw) * force_robot_x
-            - math.sin(yaw) * force_robot_y
+            np.cos(yaw) * force_robot_x
+            - np.sin(yaw) * force_robot_y
         )
+
         force_global_y = (
-            math.sin(yaw) * force_robot_x
-            + math.cos(yaw) * force_robot_y
+            np.sin(yaw) * force_robot_x
+            + np.cos(yaw) * force_robot_y
         )
+
         return force_global_x, force_global_y
 
     def ca1_x(self, repulsive_x, repulsive_y):
@@ -321,12 +310,7 @@ class ObstacleCourseNode(Node):
 
         ###### INSERT CODE HERE ######
 
-        if self.apf_ranges is None or self.apf_angles is None:
-            self.move_2D(0.0, 0.0, 0.0)
-            return
-
-        pose = self.to_course() if not self.is_simulation else self.pose
-        px, py, heading_deg = pose
+        px, py, heading_deg = self.pose
 
         self.update_navigation_stage(px, py)
 
@@ -361,16 +345,14 @@ class ObstacleCourseNode(Node):
             turn=0.0
         )
 
-        self.apf_debug_ticks += 1
-        if self.apf_debug_ticks % 10 == 0:
-            self.get_logger().info(
-                f"APF stage={self.navigation_stage} | "
-                f"pose=({px:.2f}, {py:.2f}, {heading_deg:.1f}) | "
-                f"attractive=({attractive[0]:.3f}, {attractive[1]:.3f}) | "
-                f"repulsive=({repulsive_x:.3f}, {repulsive_y:.3f}) | "
-                f"total=({total[0]:.3f}, {total[1]:.3f}) | "
-                f"command=({velocity_robot_x:.3f}, {velocity_robot_y:.3f})"
-            )
+        self.get_logger().info(
+            f"APF stage={self.navigation_stage} | "
+            f"pose=({px:.2f}, {py:.2f}, {heading_deg:.1f}) | "
+            f"attractive=({attractive[0]:.3f}, {attractive[1]:.3f}) | "
+            f"repulsive=({repulsive_x:.3f}, {repulsive_y:.3f}) | "
+            f"total=({total[0]:.3f}, {total[1]:.3f}) | "
+            f"command=({velocity_robot_x:.3f}, {velocity_robot_y:.3f})"
+        )
         ###### INSERT CODE HERE ######
                 
 
