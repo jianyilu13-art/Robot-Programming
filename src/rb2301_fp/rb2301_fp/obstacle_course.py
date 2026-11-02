@@ -127,12 +127,10 @@ class ObstacleCourseNode(Node):
         self.forward_velocity_limit = 0.30
         self.lateral_velocity_limit = 0.20
 
-        self.push_force = 0.13
         self.enter_escape_threshold = 0.05
-        self.exit_escape_threshold = 0.1
-        self.push_direction = 0
-        self.push_active = False
-        self.recovery_waiting = False
+        self.exit_escape_threshold = 0.15
+        self.preferred_direction = -1.0
+        self.in_escape_mode = False
 
         # Conservative rectangular footprint from the NanoCar URDF wheel-centre
         # extents (y = +/-0.08725 m, x = -0.00015 to 0.14398 m).  The mesh has
@@ -219,9 +217,7 @@ class ObstacleCourseNode(Node):
             self.navigation_stage = next_stage
             self.stage_entry_pose = np.array((x, y), dtype=float)
             self.apf_debug_ticks = 0
-            self.push_active = False
-            self.push_direction = 0
-            self.recovery_waiting = False
+            self.in_escape_mode = False
             self.get_logger().info(
                 f"APF stage transition: {previous_stage} -> {next_stage} "
                 f"at ({x:.2f}, {y:.2f})"
@@ -344,7 +340,7 @@ class ObstacleCourseNode(Node):
 
 
 
-    def directional_clearance(self, direction_global, heading_deg, speed=None):
+    def directional_clearance(self, direction_global, heading_deg):
         """Return free travel in a footprint-wide corridor, or zero if unknown."""
 
         if not hasattr(self, "last_scan"):
@@ -356,64 +352,45 @@ class ObstacleCourseNode(Node):
         angles = np.arange(scan.size) * 2.0 * np.pi / scan.size
         # An infinite range is known-free only up to a conservative finite cap;
         # NaN, non-positive, and missing readings never establish clearance.
-        valid = ((np.isfinite(scan) & (scan > 0.0)) | np.isposinf(scan))
-        if not np.any(valid):
+        observed = ((np.isfinite(scan) & (scan > 0.0)) | np.isposinf(scan))
+        if not np.any(observed):
             return 0.0
 
         # Keep the official scan convention: angle zero is robot forward.
-        distances = np.minimum(scan[valid], self.obstacle_influence_distance)
-        robot_angles = angles[valid]
+        distances = np.minimum(scan[observed], self.obstacle_influence_distance)
+        robot_angles = angles[observed]
         x = distances * np.cos(robot_angles)
         y = distances * np.sin(robot_angles)
 
-         # Express the desired global direction in the robot frame
+        # Express the desired global direction in the robot frame.
         direction_robot = direction_global - math.radians(heading_deg)
         c, s = math.cos(direction_robot), math.sin(direction_robot)
         along = x * c + y * s
         across = -x * s + y * c
 
-        # Inflated robot dimensions
+        # Project the inflated footprint onto the intended movement direction.
         half_width = self.robot_width / 2.0 + self.clearance_safety_margin
         half_length = self.robot_length / 2.0 + self.clearance_safety_margin
+        half_along = abs(c) * half_length + abs(s) * half_width
+        half_across = abs(s) * half_length + abs(c) * half_width
 
-         # Expected movement during one controller cycle
-        travel = (self.push_force if speed is None else abs(speed)) * self.control_period
         in_corridor = (
-            (np.abs(across) <= half_width)
-            & (along >= -half_length)
+            (np.abs(across) <= half_across)
+            & (along >= -half_along)
         )
         if not np.any(in_corridor):
-            return float("inf")
+            return 0.0
 
         # Clearance is the distance the footprint may translate before contact.
-        clearance = max(0.0, float(np.min(along[in_corridor]) - half_length))
-        return 0.0 if clearance <= travel else clearance
+        return max(0.0, float(np.min(along[in_corridor]) - half_along))
 
 
 
     def direction_is_traversable(self, direction_global, heading_deg):
-        """Check that one recovery step fits in the inflated footprint corridor."""
+        """Check that one CA1 escape step fits in the inflated footprint corridor."""
         return self.directional_clearance(direction_global, heading_deg) > (
-            self.push_force * self.control_period
+            0.15 * self.control_period
         )
-
-    @staticmethod
-    def recovery_direction_name(axis, direction):
-        return f"{('+' if direction > 0 else '-')}{axis}" if direction else "NONE"
-
-
-
-    def choose_y_push(self, heading_deg):
-        """Choose global +/-Y using footprint-wide, not single-beam, clearance."""
-        positive = self.directional_clearance(math.pi / 2.0, heading_deg)
-        negative = self.directional_clearance(-math.pi / 2.0, heading_deg)
-        return 1.0 if positive >= negative else -1.0
-
-    def choose_x_push(self, heading_deg):
-        """Choose global +/-X using footprint-wide, not single-beam, clearance."""
-        positive = self.directional_clearance(0.0, heading_deg)
-        negative = self.directional_clearance(math.pi, heading_deg)
-        return 1.0 if positive >= negative else -1.0
 
 
 
@@ -455,121 +432,63 @@ class ObstacleCourseNode(Node):
         # LOCAL MINIMUM RECOVERY
         # ==========================================
 
+        # Select primary and escape axes.
         if self.navigation_stage in (0, 2):
             primary_velocity = velocity_global_x
-            primary_angle = 0.0
-            recovery_axis = "Y"
-            recovery_angles = (math.pi / 2.0, -math.pi / 2.0)
+            lateral_avoidance = repulsive_y
         else:
             primary_velocity = -velocity_global_y
-            primary_angle = -math.pi / 2.0
-            recovery_axis = "X"
-            recovery_angles = (0.0, math.pi)
+            lateral_avoidance = repulsive_x
 
-        primary_clearance = self.directional_clearance(
-            primary_angle, heading_deg, abs(primary_velocity)
-        )
-        primary_clear = primary_clearance > abs(primary_velocity) * self.control_period
-        stuck = primary_velocity <= self.enter_escape_threshold
+        escape_velocity = None
 
-        if not self.push_active:
-            if stuck:
-                self.push_active = True
-                preferred = (self.choose_y_push(heading_deg)
-                             if self.navigation_stage in (0, 2)
-                             else self.choose_x_push(heading_deg))
-                preferred_angle = recovery_angles[0 if preferred > 0 else 1]
-                opposite = -preferred
-                opposite_angle = recovery_angles[0 if opposite > 0 else 1]
-                if self.direction_is_traversable(preferred_angle, heading_deg):
-                    self.push_direction = preferred
-                elif self.direction_is_traversable(opposite_angle, heading_deg):
-                    self.push_direction = opposite
-                else:
-                    self.push_direction = 0
-                self.recovery_waiting = self.push_direction == 0
-                self.get_logger().info(
-                    f"RECOVERY START: stage={self.navigation_stage}, "
-                    f"direction={self.recovery_direction_name(recovery_axis, self.push_direction)}"
-                )
-                if self.recovery_waiting:
-                    self.get_logger().info("RECOVERY STOP: both directions blocked")
-        else:
-            # Hysteresis: do not leave recovery until APF forward speed has
-            # recovered and the primary footprint corridor is clear.
-            if primary_velocity >= self.exit_escape_threshold and primary_clear:
-                self.push_active = False
-                self.push_direction = 0
-                self.recovery_waiting = False
-                self.get_logger().info(
-                    "RECOVERY SUCCESS: primary direction clear"
-                )
+        if self.in_escape_mode:
+
+            # Resume normal APF when the primary velocity recovers.
+            if primary_velocity > self.exit_escape_threshold:
+                self.in_escape_mode = False
+
             else:
-                # No direction is latched only after both were blocked.  Choose
-                # again once either fo# Total force = attraction + repulsionotprint corridor becomes traversable.
-                if not self.push_direction:
-                    preferred = (self.choose_y_push(heading_deg)
-                                 if self.navigation_stage in (0, 2)
-                                 else self.choose_x_push(heading_deg))
-                    preferred_angle = recovery_angles[0 if preferred > 0 else 1]
-                    opposite = -preferred
-                    opposite_angle = recovery_angles[0 if opposite > 0 else 1]
-                    if self.direction_is_traversable(preferred_angle, heading_deg):
-                        self.push_direction = preferred
-                    elif self.direction_is_traversable(opposite_angle, heading_deg):
-                        self.push_direction = opposite
-                current_angle = recovery_angles[0 if self.push_direction > 0 else 1]
-                opposite_direction = -self.push_direction if self.push_direction else 1.0
-                opposite_angle = recovery_angles[0 if opposite_direction > 0 else 1]
-                current_clearance = (self.directional_clearance(current_angle, heading_deg)
-                                     if self.push_direction else 0.0)
-                current_clear = (self.push_direction != 0
-                                 and self.direction_is_traversable(current_angle, heading_deg))
-                opposite_clear = self.direction_is_traversable(opposite_angle, heading_deg)
+                if abs(lateral_avoidance) < 0.20:
+                    # Keep the preferred direction.
+                    escape_velocity = 0.15 * self.preferred_direction
 
-                if current_clear:
-                    if self.recovery_waiting:
-                        self.recovery_waiting = False
-                        self.get_logger().info(
-                            f"RECOVERY CONTINUE: direction="
-                            f"{self.recovery_direction_name(recovery_axis, self.push_direction)}, "
-                            f"clearance={current_clearance:.2f}"
-                        )
-                elif opposite_clear:
-                    if self.push_direction:
-                        self.get_logger().info(
-                            f"RECOVERY BLOCKED: direction="
-                            f"{self.recovery_direction_name(recovery_axis, self.push_direction)}"
-                        )
-                    old_direction = self.push_direction
-                    self.push_direction = opposite_direction
-                    self.recovery_waiting = False
-                    self.get_logger().info(
-                        f"RECOVERY SWITCH: "
-                        f"{self.recovery_direction_name(recovery_axis, old_direction)} -> "
-                        f"{self.recovery_direction_name(recovery_axis, self.push_direction)}"
-                    )
-                elif not self.recovery_waiting:
-                    if self.push_direction:
-                        self.get_logger().info(
-                            f"RECOVERY BLOCKED: direction="
-                            f"{self.recovery_direction_name(recovery_axis, self.push_direction)}"
-                        )
-                    self.recovery_waiting = True
-                    self.get_logger().info("RECOVERY STOP: both directions blocked")
+                else:
+                    # Follow lateral avoidance when strong.
+                    escape_velocity = lateral_avoidance
+                    self.in_escape_mode = False
 
-        # Apply recovery velocity
-        if self.push_active and not self.recovery_waiting:
+        else:
+
+            # Enter escape mode at an APF local minimum.
+            if primary_velocity < self.enter_escape_threshold:
+                self.in_escape_mode = True
+
+                if lateral_avoidance > 0.1:
+                    self.preferred_direction = 1.0
+                elif lateral_avoidance < -0.1:
+                    self.preferred_direction = -1.0
+                else:
+                    self.preferred_direction *= -1.0
+
+                escape_velocity = 0.15 * self.preferred_direction
+
+        if escape_velocity is not None:
+            # Check whether the escape movement is safe.
+            if self.navigation_stage in (0, 2):
+                escape_angle = math.pi / 2.0 if escape_velocity > 0.0 else -math.pi / 2.0
+            else:
+                escape_angle = 0.0 if escape_velocity > 0.0 else math.pi
+
+            if not self.direction_is_traversable(escape_angle, heading_deg):
+                escape_velocity = 0.0
 
             if self.navigation_stage in (0, 2):
-
-                velocity_global_x = max(0.0, velocity_global_x)
-                velocity_global_y = self.push_force * self.push_direction
-
+                velocity_global_x = 0.0
+                velocity_global_y = escape_velocity
             else:
-
-                velocity_global_y = min(0.0, velocity_global_y)
-                velocity_global_x = self.push_force * self.push_direction
+                velocity_global_y = 0.0
+                velocity_global_x = escape_velocity
 
 
         yaw = math.radians(heading_deg)
@@ -590,21 +509,12 @@ class ObstacleCourseNode(Node):
             turn=0.0
         )
 
-        push_x = 0.0
-        push_y = 0.0
-
-        if self.push_active and not self.recovery_waiting:
-            if self.navigation_stage in (0, 2):
-                push_y = self.push_force * self.push_direction
-            elif self.navigation_stage == 1:
-                push_x = self.push_force * self.push_direction
-
         self.get_logger().info(
             f"APF stage={self.navigation_stage} | "
             f"pose=({px:.2f}, {py:.2f}, {heading_deg:.1f}) | "
             f"repulsive=({repulsive_x:.3f}, {repulsive_y:.3f}) | "
-            f"push_active={self.push_active} | "
-            f"push=({push_x:.3f}, {push_y:.3f}) | "
+            f"escape_mode={self.in_escape_mode} | "
+            f"preferred_direction={self.preferred_direction:+.1f} | "
             f"command=({velocity_robot_x:.3f}, {velocity_robot_y:.3f})"
         )
         ###### INSERT CODE HERE ######
