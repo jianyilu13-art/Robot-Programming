@@ -266,7 +266,8 @@ class ObstacleCourseNode(Node):
         next_stage = self.navigation_stage
 
         # Only detect transitions during normal navigation
-        if self.recovery_state != "NORMAL":
+        if self.recovery_state not in ("NORMAL", "RECOVER"):
+            self.opening_history.clear()
             return
 
         # Stage 0 -> 1: opening toward global -X

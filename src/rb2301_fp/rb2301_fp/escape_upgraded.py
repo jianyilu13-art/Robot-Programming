@@ -112,31 +112,27 @@ class ObstacleCourseNode(Node):
         # ARTIFICIAL POTENTIAL FIELD PARAMETERS
         # ==========================================
         self.navigation_stage = 0
-        self.state1_end_y = 2.0
-        self.state2_end_x = 1.5
+        self.state1_end_y = 2.38  # REAL: adjust after measuring course
+        self.state2_end_x = 1.5  # REAL: adjust after measuring course
 
         # Stage 2 -> Stage 3
-        self.dynamic_stage_start_y = 0.95
+        self.dynamic_stage_start_y = 1.5  # REAL: adjust to dynamic-obstacle entry
 
         # Stage 3 -> Stage 4 (finish)
-        self.state3_end_y = -0.11
+        self.state3_end_y = -0.11  # REAL: adjust finish position
 
 
         self.k_att = 6
-        self.k_rep = 1
+        self.k_rep = 2
 
         self.obstacle_influence_distance = 0.7
         self.minimum_distance = 0.1
 
         self.lateral_deadband = 0
 
-        self.forward_velocity_limit = 0.28
-        self.lateral_velocity_limit = 0.2
+        self.forward_velocity_limit = 0.28  # Real-world template
+        self.lateral_velocity_limit = 0.20  # Real-world template
 
-        self.enter_escape_threshold = 0.02
-        self.exit_escape_threshold = 0.15
-        self.preferred_direction = -1.0
-        self.in_escape_mode = False
 
         # ==========================================
         # UPGRADED ESCAPE MODE PARAMETERS
@@ -145,30 +141,41 @@ class ObstacleCourseNode(Node):
 
         # Robot physical dimensions (metres)
         # Replace with measured dimensions
-        self.robot_width = 0.150
-        self.robot_length = 0.30
-        self.safety_margin = 0.01
+        self.robot_width = 0.10  # Real-world template; verify physical dimensions
+        self.robot_length = 0.20  # Real-world template; verify physical dimensions
+        self.safety_margin = 0.01  # Real-world template; verify margin
 
         # Actual forward progress monitoring
-        self.progress_window = 8.0
-        self.minimum_forward_progress = 0.3
+        self.progress_window = 2.0  # Real-world template; longer window for lower speed
+        self.minimum_forward_progress = 0.15
 
         # Escape movement
-        self.escape_speed = 0.15
-        self.backtrack_speed = 0.15
+        self.escape_speed = 0.15  # Real-world template
+        self.backtrack_speed = 0.15  # Real-world template
+        self.preferred_direction = -1.0
+        self.escape_switch_count = 0
+        self.max_escape_switches = 4
 
         # Clearance checking
-        self.escape_lookahead = 0.40
-        self.side_clearance_threshold = 0.30
+        self.escape_lookahead = 0.50
+        self.escape_side_lookahead = 0.1
+        self.backtrack_lookahead = 0.3
+        self.side_clearance_threshold = 0.3
         self.side_difference_threshold = 0.10
-        self.wall_stop_distance = 0.10
+        self.wall_stop_distance = 0.05
 
         # Recovery stability
         self.forward_clear_duration = 0.30
         self.recovery_duration = 0.50
+        # RECOVER movement
+        self.recover_forward_speed = 0.20
+        self.recover_lateral_gain = 0.10
 
         # Backtracking limits
-        self.max_backtrack_distance = 0.50
+        self.max_backtrack_distance = 1.50
+        self.min_backtrack_distance = 0.20
+
+        self.backtrack_lateral_multiplier = 1.4
 
         # Recovery state
         self.recovery_state = "NORMAL"
@@ -183,10 +190,15 @@ class ObstacleCourseNode(Node):
 
         # Backtrack reference
         self.backtrack_start_pose = None
+        self.backtrack_forward_lookahead = None
 
         # Forward-clear timer
         self.forward_clear_start = None
 
+        # Existing detailed logging fields
+        self.last_forward_progress = 0.0
+        self.last_left_clear = False
+        self.last_right_clear = False
 
         # ==========================================
         # STAGE 3: DYNAMIC OBSTACLE PARAMETERS
@@ -259,15 +271,15 @@ class ObstacleCourseNode(Node):
         if self.navigation_stage == 0 and y <= self.state1_end_y:
             next_stage = 1
 
-        # Stage 1: Move along global -X
+        # Stage 1: Move along global -X (slightly -Y)
         elif self.navigation_stage == 1 and x <= self.state2_end_x:
             next_stage = 2
 
-        # Stage 2 -> Stage 3
+        # Stage 2 -> Stage 3: Continue along -Y
         elif self.navigation_stage == 2 and y <= self.dynamic_stage_start_y:
             next_stage = 3
 
-        # Stage 3 -> Stage 4
+        # Stage 3 -> Stage 4: Finish along -Y
         elif self.navigation_stage == 3 and y <= self.state3_end_y:
             next_stage = 4
 
@@ -287,6 +299,8 @@ class ObstacleCourseNode(Node):
 
             self.backtrack_start_pose = None
             self.forward_clear_start = None
+            self.escape_switch_count = 0
+            self.backtrack_forward_lookahead = None
 
             self.get_logger().info(
                 f"APF stage transition: {previous_stage} -> {next_stage} "
@@ -299,23 +313,15 @@ class ObstacleCourseNode(Node):
         and lateral escape directions in global coordinates.
         """
 
-        if self.navigation_stage in (0, 2):
-            # Forward = -Y
-            # Positive escape = +X
+        if self.navigation_stage in (0, 2, 3):
+            # Forward -Y; positive lateral +X
             forward = np.array([0.0, -1.0])
             lateral = np.array([1.0, 0.0])
-
         else:
-            # Stage 1:
-            # Forward = -X with slight -Y component
+            # Stage 1: primarily -X, slightly -Y
             forward = np.array([-1.0, -0.1])
             forward /= np.linalg.norm(forward)
-
-            # Perpendicular lateral direction
-            lateral = np.array([
-                -forward[1],
-                forward[0]
-            ])
+            lateral = np.array([-forward[1], forward[0]])
 
         return forward, lateral
 
@@ -435,7 +441,21 @@ class ObstacleCourseNode(Node):
                 return False
 
         return True
+        
+    def get_forward_distance(self):
+        scan = np.asarray(self.last_scan, dtype=float)
 
+        forward, _ = self.get_stage_directions()
+
+        yaw = math.radians(float(self.pose[2]))
+
+        angle = (
+            math.atan2(forward[1], forward[0]) - yaw
+        ) % (2.0 * math.pi)
+
+        index = int(round(angle / (2.0 * math.pi) * len(scan))) % len(scan)
+
+        return float(scan[index])
 
     def select_escape_direction(self):
         """
@@ -450,12 +470,12 @@ class ObstacleCourseNode(Node):
 
         left_clear = self.get_clearance(
             lateral,
-            self.escape_lookahead
+            self.escape_side_lookahead
         )
 
         right_clear = self.get_clearance(
             -lateral,
-            self.escape_lookahead
+            self.escape_side_lookahead
         )
 
         self.last_left_clear = left_clear
@@ -508,8 +528,17 @@ class ObstacleCourseNode(Node):
 
             if direction != 0.0:
 
+                if direction != self.preferred_direction:
+                    self.escape_switch_count += 1
+
                 self.preferred_direction = direction
-                self.recovery_state = "ESCAPE"
+
+                if self.escape_switch_count >= self.max_escape_switches:
+                    self.recovery_state = "BACKTRACK"
+                    self.backtrack_start_pose = position.copy()
+                else:
+                    self.recovery_state = "ESCAPE"
+
                 self.recovery_state_start = now
                 self.forward_clear_start = None
 
@@ -532,7 +561,9 @@ class ObstacleCourseNode(Node):
             # Check whether forward passage is available
             forward_clear = self.get_clearance(
                 forward,
-                self.escape_lookahead
+                self.backtrack_forward_lookahead
+                if self.backtrack_forward_lookahead is not None
+                else self.escape_lookahead
             )
 
             if forward_clear:
@@ -556,7 +587,7 @@ class ObstacleCourseNode(Node):
 
                 side_clear = self.get_clearance(
                     escape_direction,
-                    self.escape_lookahead
+                    self.escape_side_lookahead
                 )
 
                 if not side_clear:
@@ -593,33 +624,49 @@ class ObstacleCourseNode(Node):
                 self.recovery_state = "FAILED"
                 return 0.0, 0.0
 
-            # Check whether a lateral opening is available
-            left_clear = self.get_clearance(
-                lateral,
-                self.escape_lookahead
-            )
+            # Check lateral space only after minimum backtracking
+            if retreat_distance >= self.min_backtrack_distance:
 
-            right_clear = self.get_clearance(
-                -lateral,
-                self.escape_lookahead
-            )
+                left_clear = self.get_clearance(
+                    lateral,
+                    self.escape_side_lookahead
+                )
 
-            if left_clear or right_clear:
+                right_clear = self.get_clearance(
+                    -lateral,
+                    self.escape_side_lookahead
+                )
 
-                self.left_attempted = False
-                self.right_attempted = False
+                if left_clear or right_clear:
+                    forward_distance = self.get_forward_distance()
 
-                self.recovery_state = "SELECT"
+                    if np.isfinite(forward_distance) and forward_distance > 0:
+                        self.backtrack_forward_lookahead = (
+                            self.backtrack_lateral_multiplier * forward_distance
+                        )
 
-                return 0.0, 0.0
+                        self.left_attempted = False
+                        self.right_attempted = False
+                        self.escape_switch_count = 0
+
+                        self.recovery_state = "SELECT"
+                        return 0.0, 0.0
 
             # Check backward clearance
             backward_clear = self.get_clearance(
                 -forward,
-                self.escape_lookahead
+                self.backtrack_lookahead
             )
 
             if not backward_clear:
+
+                self.get_logger().warn(
+                    f"BACKTRACK BLOCKED | "
+                    f"retreat={retreat_distance:.3f}m | "
+                    f"lookahead={self.backtrack_lookahead:.3f}m | "
+                    f"pose=({px:.3f}, {py:.3f})"
+                )
+
                 self.recovery_state = "FAILED"
                 return 0.0, 0.0
 
@@ -652,10 +699,22 @@ class ObstacleCourseNode(Node):
 
                 self.left_attempted = False
                 self.right_attempted = False
+                self.escape_switch_count = 0
+                self.backtrack_forward_lookahead = None
 
                 self.progress_history.clear()
 
-            return velocity_global_x, velocity_global_y
+            # Forward movement with small lateral APF correction
+            forward, lateral = self.get_stage_directions()
+
+            velocity = np.array([velocity_global_x, velocity_global_y])
+
+            recover_velocity = (
+                self.recover_forward_speed * forward
+                + self.recover_lateral_gain * np.dot(velocity, lateral) * lateral
+            )
+
+            return float(recover_velocity[0]), float(recover_velocity[1])
 
         # ==========================================
         # FAILED
@@ -774,37 +833,16 @@ class ObstacleCourseNode(Node):
 
     def ca1_x(self, repulsive_x, repulsive_y):
         """APF for stages moving along global -Y."""
-
         attractive = (0.0, -self.k_att)
-
-        lateral = (
-            0.0 if abs(repulsive_x) < self.lateral_deadband
-            else repulsive_x
-        )
-
-        total = (
-            attractive[0] + lateral,
-            attractive[1] + repulsive_y
-        )
-
+        lateral = (0.0 if abs(repulsive_x) < self.lateral_deadband else repulsive_x)
+        total = (attractive[0] + lateral, attractive[1] + repulsive_y)
         return attractive, total
-    
 
     def ca1_y(self, repulsive_x, repulsive_y):
-        """APF for stage moving along global -X."""
-
-        attractive = (-self.k_att, -self.k_att*0.1)
-
-        lateral = (
-            0.0 if abs(repulsive_y) < self.lateral_deadband
-            else repulsive_y
-        )
-
-        total = (
-            attractive[0] + repulsive_x,
-            attractive[1] + lateral
-        )
-
+        """APF for stage moving along global -X, slightly -Y."""
+        attractive = (-self.k_att, -self.k_att * 0.1)
+        lateral = (0.0 if abs(repulsive_y) < self.lateral_deadband else repulsive_y)
+        total = (attractive[0] + repulsive_x, attractive[1] + lateral)
         return attractive, total
 
     def stage3_controller(self, heading_deg):
@@ -854,15 +892,12 @@ class ObstacleCourseNode(Node):
 
         # Forward along global -Y
         velocity_global_y = float(np.clip(
-            total[1],
-            -self.dynamic_forward_limit,
-            0.0
+            total[1], -self.dynamic_forward_limit, 0.0
         ))
 
         # Lateral along global +/-X
         velocity_global_x = float(np.clip(
-            total[0],
-            -self.dynamic_lateral_limit,
+            total[0], -self.dynamic_lateral_limit,
             self.dynamic_lateral_limit
         ))
 
@@ -889,29 +924,15 @@ class ObstacleCourseNode(Node):
     def limit_apf_velocity(self, force_x, force_y):
 
         if self.navigation_stage in (0, 2):
-
             # Primary -Y, lateral X
-            velocity_x = np.clip(
-                force_x, -self.lateral_velocity_limit, self.lateral_velocity_limit
-            )
-
-            velocity_y = np.clip(
-                force_y, -self.forward_velocity_limit, self.forward_velocity_limit
-            )
-
+            velocity_x = np.clip(force_x, -self.lateral_velocity_limit, self.lateral_velocity_limit)
+            velocity_y = np.clip(force_y, -self.forward_velocity_limit, self.forward_velocity_limit)
         else:
-
             # Primary -X, lateral Y
-            velocity_x = np.clip(
-                force_x, -self.forward_velocity_limit, self.forward_velocity_limit
-            )
-
-            velocity_y = np.clip(
-                force_y, -self.lateral_velocity_limit, self.lateral_velocity_limit
-            )
+            velocity_x = np.clip(force_x, -self.forward_velocity_limit, self.forward_velocity_limit)
+            velocity_y = np.clip(force_y, -self.lateral_velocity_limit, self.lateral_velocity_limit)
 
         return float(velocity_x), float(velocity_y)
-
 
 
     def timer_callback(self):
