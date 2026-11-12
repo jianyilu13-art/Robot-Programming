@@ -117,37 +117,25 @@ class ObstacleCourseNode(Node):
         self.opening_window = 1.0
 
         # Stage 0 -> 1
-        self.stage0_std_threshold = 0.3  # 0.4 in real robot, 0.3 in simulation
-        self.stage0_change_threshold = 0.5  # 0.6 in real robot, 0.5 in simulation
+        self.stage0_std_threshold = 0.30
+        self.stage0_change_threshold = 0.50
 
         # Stage 1 -> 2
-        self.stage1_std_threshold = 0.2  # 0.4 in real robot, 0.2 in simulation
-        self.stage1_change_threshold = 0.3 # 0.6 in real robot, 0.3 in simulation
+        self.stage1_std_threshold = 0.2
+        self.stage1_change_threshold = 0.30
 
         self.opening_history = []
 
         self.k_att = 6
-        self.k_rep = 1.2
+        self.k_rep = 1.1
 
-        self.obstacle_influence_distance = 0.4
+        self.obstacle_influence_distance = 0.7
         self.minimum_distance = 0.1
 
         self.lateral_deadband = 0
 
-        self.forward_velocity_limit = 0.42  # 0.2 in real robot, 0.42 in simulation
-        self.lateral_velocity_limit = 0.42  # 0.2 in real robot, 0.42 in simulation
-
-        # Stage 2 -> Stage 3
-        self.stage2_start_time = None
-        self.stage2_duration = 4.5
-
-        # Stage 3: Pure APF
-        self.stage3_k_att = 8.0
-        self.stage3_k_rep = 3.0
-        self.stage3_influence_distance = 0.5
-
-        self.stage3_forward_limit = 0.55 if self.is_simulation else 0.35
-        self.stage3_lateral_limit = 0.55 if self.is_simulation else 0.35
+        self.forward_velocity_limit = 0.42  # Simulation template
+        self.lateral_velocity_limit = 0.42  # Simulation template
 
 
         # ==========================================
@@ -157,17 +145,17 @@ class ObstacleCourseNode(Node):
 
         # Robot physical dimensions (metres)
         # Replace with measured dimensions
-        self.robot_width = 0.2  # 0.1 in real robot, 0.2 in simulation
-        self.robot_length = 0.2  # 0.16 in real robot, 0.2 in simulation
-        self.safety_margin = 0.01 
+        self.robot_width = 0.2  # Simulation template
+        self.robot_length = 0.2  # Simulation template
+        self.safety_margin = 0.01  # Simulation template
 
         # Actual forward progress monitoring
-        self.progress_window = 2.0  
+        self.progress_window = 2.0  # Simulation template
         self.minimum_forward_progress = 0.2
 
         # Escape movement
-        self.escape_speed = 0.3  # 0.2 in real robot, 0.3 in simulation
-        self.backtrack_speed = 0.3  # 0.2 in real robot, 0.3 in simulation
+        self.escape_speed = 0.3  # Simulation template
+        self.backtrack_speed = 0.3  # Simulation template
         self.preferred_direction = -1.0
         self.escape_switch_count = 0
         self.max_escape_switches = 4
@@ -179,9 +167,9 @@ class ObstacleCourseNode(Node):
 
         # Recovery stability
         self.forward_clear_duration = 0.20
-        self.recovery_duration = 0.20 # 0.3
+        self.recovery_duration = 0.30
         # RECOVER movement
-        self.recover_forward_speed = 0.20 # 0.3
+        self.recover_forward_speed = 0.30
         self.recover_lateral_gain = 0.45
 
         # Backtracking limits
@@ -285,24 +273,10 @@ class ObstacleCourseNode(Node):
             if self.detect_sudden_opening(stage1_opening):
                 next_stage = 2
 
-        elif self.navigation_stage == 2:
-
-            if self.stage2_start_time is not None:
-
-                now = self.get_clock().now().nanoseconds * 1e-9
-
-                if now - self.stage2_start_time >= self.stage2_duration:
-                    next_stage = 3
-
         if next_stage != self.navigation_stage:
 
             previous_stage = self.navigation_stage
             self.navigation_stage = next_stage
-
-            if next_stage == 2:
-                self.stage2_start_time = (
-                    self.get_clock().now().nanoseconds * 1e-9
-                )
 
             # Reset recovery state
             self.recovery_state = "NORMAL"
@@ -343,7 +317,7 @@ class ObstacleCourseNode(Node):
             # REAL WORLD
             # ==========================================
             if self.navigation_stage == 1:
-                forward = np.array([-1.0, -0.2]) # Slightly biased 
+                forward = np.array([-1.0, -0.1])
             else:
                 forward = np.array([0.0, -1.0])
 
@@ -651,10 +625,7 @@ class ObstacleCourseNode(Node):
 
                 self.preferred_direction = direction
 
-                if (
-                    self.navigation_stage != 3
-                    and self.escape_switch_count >= self.max_escape_switches
-                ):
+                if self.escape_switch_count >= self.max_escape_switches:
                     self.recovery_state = "BACKTRACK"
                     self.backtrack_start_pose = position.copy()
                 else:
@@ -664,11 +635,6 @@ class ObstacleCourseNode(Node):
                 self.forward_clear_start = None
 
             else:
-                if self.navigation_stage == 3:
-                    self.left_attempted = False
-                    self.right_attempted = False
-                    self.escape_switch_count = 0
-                    return 0.0, 0.0
 
                 self.recovery_state = "BACKTRACK"
                 self.recovery_state_start = now
@@ -1011,86 +977,6 @@ class ObstacleCourseNode(Node):
 
         repulsive_x, repulsive_y = self.get_avoidance_velocity(heading_deg)
 
-        # ==========================================
-        # STAGE 3: PURE APF
-        # ==========================================
-
-        if self.navigation_stage == 3:
-
-            # Save original parameters
-            original_k_att = self.k_att
-            original_k_rep = self.k_rep
-            original_influence = self.obstacle_influence_distance
-            original_forward_limit = self.forward_velocity_limit
-            original_lateral_limit = self.lateral_velocity_limit
-
-            # Apply Stage 3 parameters
-            self.k_att = self.stage3_k_att
-            self.k_rep = self.stage3_k_rep
-            self.obstacle_influence_distance = self.stage3_influence_distance
-            self.forward_velocity_limit = self.stage3_forward_limit
-            self.lateral_velocity_limit = self.stage3_lateral_limit
-
-            try:
-                repulsive_x, repulsive_y = self.get_avoidance_velocity(
-                    heading_deg
-                )
-
-                _, total = self.get_attractive_force(
-                    repulsive_x,
-                    repulsive_y
-                )
-
-                velocity_global_x, velocity_global_y = (
-                    self.limit_apf_velocity(total[0], total[1])
-                )
-
-                    # Stage 3: Enable ESCAPE recovery
-                velocity_global_x, velocity_global_y = (
-                    self.recovery_controller(
-                        px,
-                        py,
-                        velocity_global_x,
-                        velocity_global_y
-                    )
-                )
-
-            finally:
-                # Restore original parameters
-                self.k_att = original_k_att
-                self.k_rep = original_k_rep
-                self.obstacle_influence_distance = original_influence
-                self.forward_velocity_limit = original_forward_limit
-                self.lateral_velocity_limit = original_lateral_limit
-
-            # Global -> Robot frame
-            yaw = math.radians(heading_deg)
-
-            velocity_robot_x = (
-                math.cos(yaw) * velocity_global_x
-                + math.sin(yaw) * velocity_global_y
-            )
-
-            velocity_robot_y = (
-                -math.sin(yaw) * velocity_global_x
-                + math.cos(yaw) * velocity_global_y
-            )
-
-            self.move_2D(
-                x=velocity_robot_x,
-                y=velocity_robot_y,
-                turn=0.0
-            )
-
-            self.get_logger().info(
-                f"STAGE 3 PURE APF | "
-                f"pose=({px:.2f}, {py:.2f}) | "
-                f"repulsive=({repulsive_x:.3f}, {repulsive_y:.3f}) | "
-                f"command=({velocity_robot_x:.3f}, {velocity_robot_y:.3f})"
-            )
-
-            return
-
         attractive, total = self.get_attractive_force(
             repulsive_x,
             repulsive_y
@@ -1098,7 +984,6 @@ class ObstacleCourseNode(Node):
         velocity_global_x, velocity_global_y = self.limit_apf_velocity(
             total[0], total[1]
         )
-        
 
         # ==========================================
         # UPGRADED LOCAL MINIMUM RECOVERY
